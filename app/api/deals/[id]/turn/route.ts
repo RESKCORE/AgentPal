@@ -61,7 +61,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     // If both mandates exist and deal is still in setup, promote status to open
     if (deal.status === "setup" && deal.buyerMandate && deal.sellerMandate) {
       deal.status = "open";
-      if (isConvexDoc) {
+      if (isConvexDoc && convex) {
         await convex.mutation(api.deals.updateDeal, {
           dealId: dealId as Id<"deals">,
           patch: { status: "open" },
@@ -99,7 +99,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         timestamp: new Date().toISOString(),
       };
       deal.events.push(evt);
-      if (isConvexDoc) {
+      if (isConvexDoc && convex) {
         try {
           await convex.mutation(api.deals.recordRefereeTurn, {
             dealId: dealId as Id<"deals">,
@@ -121,7 +121,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const updateDealState = async (patch: Partial<DealData>) => {
       Object.assign(deal, patch);
-      if (isConvexDoc) {
+      if (isConvexDoc && convex) {
         await convex.mutation(api.deals.updateDeal, {
           dealId: dealId as Id<"deals">,
           patch: patch as Record<string, unknown>,
@@ -356,7 +356,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     let finalDeal = deal;
-    if (isConvexDoc) {
+    if (isConvexDoc && convex) {
       const updated = await convex.query(api.deals.get, { dealId: dealId as Id<"deals"> }).catch(() => null);
       if (updated) {
         finalDeal = toDealData(updated);

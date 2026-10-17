@@ -75,7 +75,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
 
       // If stored in Convex, run atomic pending reservation
-      if (isConvexDoc) {
+      if (isConvexDoc && convex) {
         try {
           await convex.mutation(api.deals.reserveInvoicePending, {
             dealId: id as Id<"deals">,
@@ -115,7 +115,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           deal.seller.email
         );
       } catch (payPalErr: unknown) {
-        if (isConvexDoc) {
+        if (isConvexDoc && convex) {
           await convex
             .mutation(api.deals.clearInvoicePending, {
               dealId: id as Id<"deals">,
@@ -127,7 +127,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
 
       // Store in Convex if Convex doc
-      if (isConvexDoc) {
+      if (isConvexDoc && convex) {
         await convex.mutation(api.deals.storeInvoiceResult, {
           dealId: id as Id<"deals">,
           contractHash,
@@ -142,7 +142,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       if (!deal.paypalInvoice) {
         return NextResponse.json({ error: "No invoice to mark paid" }, { status: 400 });
       }
-      if (!isConvexDoc) {
+      if (!isConvexDoc || !convex) {
         return NextResponse.json(
           { error: "Payment state is only recorded server-side for persisted deals." },
           { status: 400 }
