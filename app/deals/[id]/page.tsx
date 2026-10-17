@@ -248,15 +248,15 @@ export default function DealRoomPage({ params }: PageProps) {
       let activeDeal = deal;
       if (!activeDeal || isSubmittingTurn) return;
 
-      // Auto-populate sandbox counterparty if counterparty mandate is missing
-      if (!activeDeal.buyerMandate || !activeDeal.sellerMandate) {
+      // Only auto-populate simulated counterparty if awaiting counterparty in sandbox/demo
+      if (isAwaitingCounterparty && (!activeDeal.buyerMandate || !activeDeal.sellerMandate)) {
         const populated = await handlePopulateSandboxCounterparty();
         if (populated) {
           activeDeal = populated;
         }
       }
 
-      if (!activeDeal.buyerMandate || !activeDeal.sellerMandate) {
+      if (!bothPartiesReady && (!activeDeal.buyerMandate || !activeDeal.sellerMandate)) {
         setTurnError("Both parties must set their mandates before negotiation starts.");
         return;
       }
