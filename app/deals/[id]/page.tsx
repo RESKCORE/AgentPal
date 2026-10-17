@@ -20,24 +20,50 @@ export default function DealRoomPage({ params }: PageProps) {
 
   const convexDealDoc = useQuery(api.deals.get, { dealId });
   const [deal, setDeal] = useState<DealData | null>(() => DealStore.getDeal(dealId));
-  const [prevDoc, setPrevDoc] = useState(convexDealDoc);
-  if (convexDealDoc !== prevDoc) {
-    setPrevDoc(convexDealDoc);
-    if (convexDealDoc) {
-      const formatted = toDealData(convexDealDoc as Record<string, unknown>);
-      if (!formatted.buyerMandate && deal?.buyerMandate) {
-        formatted.buyerMandate = deal.buyerMandate;
+
+  // Sync from Convex realtime subscription without dropping existing events or mandate state
+  useEffect(() => {
+    if (!convexDealDoc) return;
+    const formatted = toDealData(convexDealDoc as Record<string, unknown>);
+    setDeal((currentDeal) => {
+      const merged = { ...formatted };
+      if (!merged.buyerMandate && currentDeal?.buyerMandate) {
+        merged.buyerMandate = currentDeal.buyerMandate;
       }
-      if (!formatted.sellerMandate && deal?.sellerMandate) {
-        formatted.sellerMandate = deal.sellerMandate;
+      if (!merged.sellerMandate && currentDeal?.sellerMandate) {
+        merged.sellerMandate = currentDeal.sellerMandate;
       }
-      if (deal?.status === "open" && formatted.status === "setup") {
-        formatted.status = "open";
+      if (currentDeal?.status === "open" && merged.status === "setup") {
+        merged.status = "open";
       }
-      setDeal(formatted);
-      DealStore.saveDeal(formatted);
-    }
-  }
+      // Never drop events if local/current state has recorded turns
+      if (currentDeal?.events && currentDeal.events.length > (merged.events?.length || 0)) {
+        merged.events = currentDeal.events;
+      }
+      if (!merged.standingOffer && currentDeal?.standingOffer) {
+        merged.standingOffer = currentDeal.standingOffer;
+      }
+      if ((merged.currentRound ?? 0) < (currentDeal?.currentRound ?? 0)) {
+        merged.currentRound = currentDeal?.currentRound ?? merged.currentRound;
+      }
+      if (
+        merged.seller?.name === "Invited counterparty" &&
+        currentDeal?.seller?.name &&
+        currentDeal.seller.name !== "Invited counterparty"
+      ) {
+        merged.seller = currentDeal.seller;
+      }
+      if (
+        merged.buyer?.name === "Invited counterparty" &&
+        currentDeal?.buyer?.name &&
+        currentDeal.buyer.name !== "Invited counterparty"
+      ) {
+        merged.buyer = currentDeal.buyer;
+      }
+      DealStore.saveDeal(merged);
+      return merged;
+    });
+  }, [convexDealDoc]);
 
   // Fallback sync from DealStore
   useEffect(() => {
@@ -52,6 +78,7 @@ export default function DealRoomPage({ params }: PageProps) {
 
   const confirmTentative = useMutation(api.deals.confirmTentativeAgreement);
   const updateDealMutation = useMutation(api.deals.updateDeal);
+  const populateSandboxCounterpartyMutation = useMutation(api.deals.populateSandboxCounterparty);
   const [signBusy, setSignBusy] = useState(false);
 
   // Role: derived server-side from auth (viewerRole); localStorage only as fallback
@@ -151,10 +178,10 @@ export default function DealRoomPage({ params }: PageProps) {
 
   // Populate simulated counterparty for solo sandbox testing
   const handlePopulateSandboxCounterparty = useCallback(async () => {
-    if (!deal) return;
+    if (!deal) return null;
     const isBuyerCreator = deal.creatorRole === "buyer";
     const myMandate = isBuyerCreator ? deal.buyerMandate : deal.sellerMandate;
-    if (!myMandate) return;
+    if (!myMandate) return null;
 
     const simulatedMandate = isBuyerCreator
       ? {
@@ -180,16 +207,18 @@ export default function DealRoomPage({ params }: PageProps) {
           deposit_pct_max: 30,
         };
 
+    const simulatedName = isBuyerCreator ? "Simulated Seller (Sandbox)" : "Simulated Buyer (Sandbox)";
+
     const updated: DealData = {
       ...deal,
       status: "open",
       buyerMandate: isBuyerCreator ? myMandate : simulatedMandate,
       sellerMandate: isBuyerCreator ? simulatedMandate : myMandate,
       seller: isBuyerCreator
-        ? { id: "simulated-seller", name: "Simulated Seller (Sandbox)", email: "seller-sandbox@agentpal.local", mandateSet: true }
+        ? { id: "simulated-seller", name: simulatedName, email: "seller-sandbox@agentpal.local", mandateSet: true }
         : deal.seller,
       buyer: !isBuyerCreator
-        ? { id: "simulated-buyer", name: "Simulated Buyer (Sandbox)", email: "buyer-sandbox@agentpal.local", mandateSet: true }
+        ? { id: "simulated-buyer", name: simulatedName, email: "buyer-sandbox@agentpal.local", mandateSet: true }
         : deal.buyer,
     };
 
@@ -198,29 +227,49 @@ export default function DealRoomPage({ params }: PageProps) {
     setTurnError(null);
 
     try {
-      await updateDealMutation({ dealId, patch: { status: "open" } });
+      await populateSandboxCounterpartyMutation({
+        dealId,
+        mandate: simulatedMandate,
+        participantName: simulatedName,
+      });
     } catch {
-      // Local/offline fallback
+      try {
+        await updateDealMutation({ dealId, patch: { status: "open" } });
+      } catch {
+        // Local/offline fallback
+      }
     }
-  }, [deal, dealId, updateDealMutation]);
+    return updated;
+  }, [deal, dealId, populateSandboxCounterpartyMutation, updateDealMutation]);
 
   // Handle running next negotiation turn via live AI helper API
   const handleNextTurn = useCallback(
     async (forcedAttack?: boolean, preferredActor?: "buyer_agent" | "seller_agent") => {
-      if (!deal || isSubmittingTurn) return;
-      if (!bothPartiesReady) {
-        setTurnError("Both parties must set their mandates before negotiation starts. Share your invite link or click 'Simulate Counterparty'.");
+      let activeDeal = deal;
+      if (!activeDeal || isSubmittingTurn) return;
+
+      // Auto-populate sandbox counterparty if counterparty mandate is missing
+      if (!activeDeal.buyerMandate || !activeDeal.sellerMandate) {
+        const populated = await handlePopulateSandboxCounterparty();
+        if (populated) {
+          activeDeal = populated;
+        }
+      }
+
+      if (!activeDeal.buyerMandate || !activeDeal.sellerMandate) {
+        setTurnError("Both parties must set their mandates before negotiation starts.");
         return;
       }
+
       setIsSubmittingTurn(true);
       setTurnError(null);
       try {
-        const isAttack = forcedAttack !== undefined ? forcedAttack : Boolean(deal.attackMode);
+        const isAttack = forcedAttack !== undefined ? forcedAttack : Boolean(activeDeal.attackMode);
 
-        const res = await fetch(`/api/deals/${deal.id}/turn`, {
+        const res = await fetch(`/api/deals/${activeDeal.id}/turn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ attackMode: isAttack, deal, preferredActor }),
+          body: JSON.stringify({ attackMode: isAttack, deal: activeDeal, preferredActor }),
         });
 
         if (res.ok) {
@@ -243,7 +292,7 @@ export default function DealRoomPage({ params }: PageProps) {
         }
 
         // Local store fallback
-        const updated = DealStore.runNextTurn(deal.id, isAttack);
+        const updated = DealStore.runNextTurn(activeDeal.id, isAttack);
         if (updated) {
           setDeal(JSON.parse(JSON.stringify(updated)));
           if (updated.status !== "open") {
@@ -258,17 +307,20 @@ export default function DealRoomPage({ params }: PageProps) {
         setIsSubmittingTurn(false);
       }
     },
-    [deal, isSubmittingTurn, bothPartiesReady]
+    [deal, isSubmittingTurn, handlePopulateSandboxCounterparty]
   );
 
-  // Auto-play loop
+  // Auto-play loop using ref to prevent stale closures and missed ticks
+  const handleNextTurnRef = useRef(handleNextTurn);
+  handleNextTurnRef.current = handleNextTurn;
+
   useEffect(() => {
-    if (!autoPlaying || !deal || deal.status !== "open") return;
+    if (!autoPlaying || !deal || deal.status !== "open" || isSubmittingTurn) return;
     const timer = setTimeout(() => {
-      handleNextTurn();
+      handleNextTurnRef.current();
     }, 1800);
     return () => clearTimeout(timer);
-  }, [autoPlaying, deal, events.length, handleNextTurn]);
+  }, [autoPlaying, deal?.status, events.length, isSubmittingTurn]);
 
   // Toggle attack mode / red team
   const handleToggleAttackMode = () => {
@@ -661,7 +713,7 @@ export default function DealRoomPage({ params }: PageProps) {
               <div className="glass-panel-elevated p-4 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-b from-zinc-800 to-zinc-950 border border-zinc-700/60 flex items-center justify-center text-blue-600 font-black text-base shadow-xs">
-                    {buyerName.charAt(0).toUpperCase()}
+                    {(buyerName || "Buyer").charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 className="font-sans font-black text-zinc-950 text-sm tracking-tight">
@@ -836,7 +888,7 @@ export default function DealRoomPage({ params }: PageProps) {
               <div className="glass-panel-elevated p-4 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-b from-blue-600 to-blue-800 border border-blue-500 flex items-center justify-center text-zinc-900 font-black text-base shadow-xs">
-                    {sellerName.charAt(0).toUpperCase()}
+                    {(sellerName || "Seller").charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 className="font-sans font-black text-zinc-950 text-sm tracking-tight">

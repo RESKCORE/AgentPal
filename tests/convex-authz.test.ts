@@ -379,5 +379,53 @@ describe("authz: settlement gating", () => {
       })
     ).rejects.toThrow(/not allowed for referee turns/i);
   });
+
+  it("populateSandboxCounterparty enables solo sandbox negotiation with simulated counterparty", async () => {
+    const t = await setup();
+    const asBuyer = t.withIdentity(BUYER);
+    const { dealId } = await asBuyer.mutation(api.deals.createDealWithInvite, {
+      title: "sandbox mobile app deal",
+      description: "Mobile app prototype",
+      creatorRole: "buyer",
+      mandate: mandateFor("buyer"),
+    });
+
+    const simulatedSellerMandate = mandateFor("seller");
+    await asBuyer.mutation(api.deals.populateSandboxCounterparty, {
+      dealId,
+      mandate: simulatedSellerMandate,
+      participantName: "Simulated Seller (Sandbox)",
+    });
+
+    const dealDoc = await asBuyer.query(api.deals.get, { dealId });
+    expect(dealDoc?.status).toBe("open");
+    expect(dealDoc?.seller?.name).toBe("Simulated Seller (Sandbox)");
+    expect(dealDoc?.seller?.mandateSet).toBe(true);
+
+    // Turn 1: Seller proposes opening bid
+    await asBuyer.mutation(api.deals.recordRefereeTurn, {
+      dealId,
+      actor: "seller_agent",
+      type: "offer",
+      payload: { price: 1200, delivery_days: 10, revisions: 2, deposit_pct: 30, message: "Opening seller bid" },
+    });
+
+    // Turn 2: Buyer responds with counter-offer
+    await asBuyer.mutation(api.deals.recordRefereeTurn, {
+      dealId,
+      actor: "buyer_agent",
+      type: "offer",
+      payload: { price: 1000, delivery_days: 12, revisions: 2, deposit_pct: 25, message: "Buyer counter-offer" },
+    });
+
+    const updatedDoc = await t.run(async (ctx) => {
+      const match = await ctx.db.query("deals").first();
+      return match;
+    });
+
+    expect(updatedDoc?.events.length).toBe(2);
+    expect(updatedDoc?.events[0].actor).toBe("seller_agent");
+    expect(updatedDoc?.events[1].actor).toBe("buyer_agent");
+  });
 });
 

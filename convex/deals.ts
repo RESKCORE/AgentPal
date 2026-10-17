@@ -430,15 +430,42 @@ export const appendEvent = mutation({
   },
 });
 
+export const populateSandboxCounterparty = mutation({
+  args: {
+    dealId: v.string(),
+    mandate: mandateValidator,
+    participantName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { deal, id, role } = await requireParticipant(ctx, args.dealId);
+    const counterRole = role === "buyer" ? "seller" : "buyer";
+    const name = args.participantName || `Simulated ${counterRole === "seller" ? "Seller" : "Buyer"} (Sandbox)`;
+    const participant = {
+      id: `simulated-${counterRole}`,
+      name,
+      email: `${counterRole}-sandbox@agentpal.local`,
+      mandateSet: true,
+    };
+    await ctx.db.patch(id, {
+      status: "open",
+      ...(counterRole === "buyer"
+        ? { buyer: participant, buyerMandate: args.mandate }
+        : { seller: participant, sellerMandate: args.mandate }),
+    });
+    return { success: true };
+  },
+});
+
 export const recordRefereeTurn = mutation({
   args: {
     dealId: v.string(),
     actor: v.string(),
     type: v.string(),
     payload: v.any(),
+    mandate: v.optional(mandateValidator),
   },
   handler: async (ctx, args): Promise<unknown> => {
-    const { deal } = await requireParticipant(ctx, args.dealId);
+    const { deal, id } = await requireParticipant(ctx, args.dealId);
 
     if (deal.status !== "open") {
       throw new Error(`Cannot record turn when deal status is '${deal.status}'`);
@@ -454,7 +481,22 @@ export const recordRefereeTurn = mutation({
     }
 
     const actingRole: "buyer" | "seller" = args.actor.includes("seller") ? "seller" : "buyer";
-    const actingMandate = actingRole === "buyer" ? deal.buyerMandate : deal.sellerMandate;
+    let actingMandate = actingRole === "buyer" ? deal.buyerMandate : deal.sellerMandate;
+
+    if (!actingMandate && args.mandate) {
+      actingMandate = args.mandate;
+      if (actingRole === "seller") {
+        await ctx.db.patch(id, {
+          sellerMandate: args.mandate,
+          seller: { ...deal.seller, mandateSet: true },
+        });
+      } else {
+        await ctx.db.patch(id, {
+          buyerMandate: args.mandate,
+          buyer: { ...deal.buyer, mandateSet: true },
+        });
+      }
+    }
 
     if (args.type === "offer") {
       if (!actingMandate) {
@@ -494,7 +536,12 @@ export const recordRefereeTurn = mutation({
       }
     }
 
-    return await ctx.runMutation(internal.deals.appendEventInternal, args);
+    return await ctx.runMutation(internal.deals.appendEventInternal, {
+      dealId: args.dealId,
+      actor: args.actor,
+      type: args.type,
+      payload: args.payload,
+    });
   },
 });
 

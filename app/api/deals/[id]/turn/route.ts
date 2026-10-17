@@ -69,6 +69,23 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
+    // Ensure missing sandbox/demo counterparty mandates are persisted to Convex
+    if (isConvexDoc && convex) {
+      if (!doc?.sellerMandate && deal.sellerMandate) {
+        await convex.mutation(api.deals.populateSandboxCounterparty, {
+          dealId: dealId as Id<"deals">,
+          mandate: deal.sellerMandate,
+          participantName: deal.seller?.name || "Simulated Seller (Sandbox)",
+        }).catch(() => {});
+      } else if (!doc?.buyerMandate && deal.buyerMandate) {
+        await convex.mutation(api.deals.populateSandboxCounterparty, {
+          dealId: dealId as Id<"deals">,
+          mandate: deal.buyerMandate,
+          participantName: deal.buyer?.name || "Simulated Buyer (Sandbox)",
+        }).catch(() => {});
+      }
+    }
+
     if (deal.status !== "open") {
       return NextResponse.json(
         { error: `Deal is in status '${deal.status}' (must be 'open' to negotiate)`, deal },
@@ -82,6 +99,21 @@ export async function POST(request: Request, { params }: RouteParams) {
         { status: 400 }
       );
     }
+
+    const lastOfferEvent = [...deal.events]
+      .reverse()
+      .find((e) => e.type === "offer");
+
+    const isSellerTurn = preferredActor
+      ? preferredActor === "seller_agent"
+      : !lastOfferEvent
+      ? deal.creatorRole === "buyer"
+      : lastOfferEvent.actor.includes("buyer");
+
+    const actingRole: "buyer" | "seller" = isSellerTurn ? "seller" : "buyer";
+    const actingMandate = isSellerTurn ? deal.sellerMandate : deal.buyerMandate;
+    const actingName = isSellerTurn ? "Seller AI Helper" : "Buyer AI Helper";
+    const clientName = isSellerTurn ? "Seller" : "Buyer";
 
     // Helper functions for updating event log and state
     const recordEvent = async (
@@ -106,6 +138,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             actor,
             type,
             payload,
+            mandate: actingMandate,
           });
         } catch {
           await convex.mutation(api.deals.appendEvent, {
@@ -128,18 +161,6 @@ export async function POST(request: Request, { params }: RouteParams) {
         }).catch(() => {});
       }
     };
-
-    const lastEvent = deal.events[deal.events.length - 1];
-    const isSellerTurn = preferredActor
-      ? preferredActor === "seller_agent"
-      : !lastEvent
-      ? deal.creatorRole === "buyer"
-      : lastEvent.actor === "buyer_agent" || lastEvent.actor === "human_buyer";
-
-    const actingRole: "buyer" | "seller" = isSellerTurn ? "seller" : "buyer";
-    const actingMandate = isSellerTurn ? deal.sellerMandate : deal.buyerMandate;
-    const actingName = isSellerTurn ? "Seller AI Helper" : "Buyer AI Helper";
-    const clientName = isSellerTurn ? "Seller" : "Buyer";
 
     const publicHistory = deal.events.map((e) => ({
       actor: e.actor,
@@ -172,7 +193,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     if (response.action === "accept" && deal.standingOffer && !attackMode) {
       const acceptanceCheck = SettlementKernel.validateAcceptance(
-        { accepted_offer_seq: lastEvent?.seq ?? 1 },
+        { accepted_offer_seq: lastOfferEvent?.seq ?? 1 },
         deal.standingOffer,
         actingMandate
       );

@@ -572,7 +572,12 @@ export class DealStore {
 
     const isAttack = forceAttackMode ?? deal.attackMode;
     const lastEvent = deal.events[deal.events.length - 1];
-    const isSellerTurn = !lastEvent || lastEvent.actor.includes('buyer');
+    const lastOfferEvent = [...deal.events]
+      .reverse()
+      .find((e) => e.type === 'offer');
+    const isSellerTurn = !lastOfferEvent
+      ? deal.creatorRole === 'buyer'
+      : lastOfferEvent.actor.includes('buyer');
     const seq = deal.events.length + 1;
 
     // ATTACK MODE SIMULATION
