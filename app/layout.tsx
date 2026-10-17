@@ -111,7 +111,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <body className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans antialiased selection:bg-blue-200 selection:text-blue-900">
           <ConvexClientProvider>
             <div className="flex min-h-screen bg-white">
-              <div className="shrink-0 bg-white border-r border-zinc-200">
+              <div className="shrink-0 bg-white">
                 <SideNav />
               </div>
               <div className="min-w-0 flex-1 bg-white">{children}</div>

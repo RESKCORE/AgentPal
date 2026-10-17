@@ -1,26 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import { UserButton } from "@clerk/nextjs";
-import { Home, Receipt, Bell, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { UserButton, useUser } from "@clerk/nextjs";
+import { Home, Receipt, Bell, Settings, PanelLeftClose, PanelLeftOpen, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { title: "Dashboard", href: "/", icon: Home },
+  { title: "Overview", href: "/overview", icon: Compass },
   { title: "Transactions", href: "/transactions", icon: Receipt },
   { title: "Notifications", href: "/notifications", icon: Bell },
   { title: "Settings", href: "/settings", icon: Settings },
 ];
 
-const HIDDEN_ON = ["/sign-in", "/onboarding"];
+const HIDDEN_ON = ["/sign-in", "/onboarding", "/overview"];
 
 export function SideNav() {
   const pathname = usePathname();
+  const { isSignedIn } = useUser();
   const [open, setOpen] = useState(true);
+  const [isGuest, setIsGuest] = useState(() => {
+    if (typeof window !== "undefined") {
+      return (
+        window.localStorage.getItem("agentpal_guest_mode") === "true" ||
+        new URLSearchParams(window.location.search).get("guest") === "true"
+      );
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const isGuestQuery = new URLSearchParams(window.location.search).get("guest") === "true";
+      const stored = window.localStorage.getItem("agentpal_guest_mode") === "true";
+      if (isGuestQuery || stored) setIsGuest(true);
+    }
+  }, [pathname]);
+
   if (HIDDEN_ON.some((p) => pathname.startsWith(p))) return null;
+  if (pathname === "/" && !isSignedIn && !isGuest) return null;
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";

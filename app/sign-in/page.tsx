@@ -72,6 +72,21 @@ export default function SignInPage() {
           }}
         />
 
+        {/* Guest Demo Login Button */}
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              document.cookie = "agentpal_guest=true; path=/; max-age=86400; SameSite=Lax";
+              window.localStorage.setItem("agentpal_guest_mode", "true");
+              window.location.href = "/?guest=true";
+            }
+          }}
+          className="w-full mt-4 py-3 px-4 rounded-xl border border-zinc-200 hover:border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+        >
+          <span>Continue as Guest</span>
+        </button>
+
         {/* Security badge footer */}
         <div className="pt-6 flex items-center justify-center gap-4 text-[11px] text-zinc-500 font-mono">
           <span className="flex items-center gap-1">

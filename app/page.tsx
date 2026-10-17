@@ -1,16 +1,55 @@
 "use client";
 
-import { useSyncExternalStore, useMemo, useState } from "react";
+import { useSyncExternalStore, useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { DealStore, type DealData, toDealData } from "@/lib/deal-store";
+import { useUser } from "@clerk/nextjs";
+import { HomeLanding } from "@/components/landing/home-landing";
+import { Sparkles, ArrowRight } from "lucide-react";
 
 const EMPTY_DEALS: DealData[] = [];
 const getEmptyDeals = () => EMPTY_DEALS;
 
 export default function HomePage() {
+  const { isSignedIn, isLoaded } = useUser();
+  const [mounted, setMounted] = useState(false);
+  const [isGuest, setIsGuest] = useState(() => {
+    if (typeof window !== "undefined") {
+      return (
+        window.localStorage.getItem("agentpal_guest_mode") === "true" ||
+        new URLSearchParams(window.location.search).get("guest") === "true"
+      );
+    }
+    return false;
+  });
+  const [viewParam, setViewParam] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("view");
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    setMounted(true);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const isGuestQuery = params.get("guest") === "true";
+      const view = params.get("view");
+      setViewParam(view);
+
+      if (isGuestQuery) {
+        window.localStorage.setItem("agentpal_guest_mode", "true");
+        setIsGuest(true);
+      } else {
+        const stored = window.localStorage.getItem("agentpal_guest_mode") === "true";
+        if (stored) setIsGuest(true);
+      }
+    }
+  }, []);
+
   const convexDeals = useQuery(api.deals.list);
   const localDeals = useSyncExternalStore(
     DealStore.subscribe,
@@ -65,6 +104,15 @@ export default function HomePage() {
     });
   }, [deals, statusFilter, searchQuery]);
 
+  // If explicitly viewing landing or not authenticated / not in guest mode, render HomeLanding
+  if (viewParam === "landing" || viewParam === "overview") {
+    return <HomeLanding />;
+  }
+
+  if (!isSignedIn && !isGuest) {
+    return <HomeLanding />;
+  }
+
   return (
     <div className="min-h-screen bg-white text-zinc-900 flex flex-col font-sans relative overflow-hidden">
       {/* Background radial gradient inspired by banner.png */}
@@ -78,6 +126,23 @@ export default function HomePage() {
 
       <main className="w-full flex-1 pb-16 relative z-10">
         <div className="w-full px-4 lg:px-8 py-8 flex flex-col gap-8 max-w-[1600px] mx-auto">
+
+          {/* Platform Overview Announcement Banner */}
+          <div className="flex items-center justify-between gap-4 p-3.5 px-5 rounded-2xl bg-gradient-to-r from-blue-50/80 via-sky-50/60 to-emerald-50/80 border border-blue-200/70 shadow-xs">
+            <div className="flex items-center gap-2.5 text-xs text-zinc-800">
+              <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                <strong>New to AgentPal?</strong> Explore our interactive protocol architecture, Settlement Kernel proofs, and live ZOPA engine.
+              </span>
+            </div>
+            <Link
+              href="/overview"
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-zinc-100 border border-zinc-200 text-xs font-bold text-blue-700 transition-colors shadow-2xs"
+            >
+              <span>Platform Overview</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
 
           {/* ========================================================
               CINEMATIC HERO SHOWCASE — Inspired by Banner & Logo
@@ -124,6 +189,8 @@ export default function HomePage() {
 
                 <div className="flex items-center gap-2 text-xs sm:text-sm font-mono tracking-[0.28em] uppercase text-zinc-600 font-bold">
                   <span>AI Negotiation</span>
+                  <span className="text-blue-600 font-black">•</span>
+                  <span>Agent Negotiations</span>
                   <span className="text-blue-600 font-black">•</span>
                   <span>Safe Settlement</span>
                 </div>

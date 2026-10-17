@@ -13,15 +13,17 @@ interface RouteParams {
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
-    const convex = await getAuthedConvex();
-    if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
+    const convex = await getAuthedConvex();
+    if (!convex && (!body.deal || body.deal.id !== id)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     // Check if id is a Convex ID or client/demo ID
     let doc: Record<string, unknown> | null = null;
     let isConvexDoc = false;
-    if (!id.includes("-") || id.length > 20) {
+    if (convex && (!id.includes("-") || id.length > 20)) {
       try {
         doc = await convex.query(api.deals.get, { dealId: id as Id<"deals"> });
         if (doc) isConvexDoc = true;

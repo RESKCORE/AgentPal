@@ -12,26 +12,30 @@ interface RouteParams {
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
-    const convex = await getAuthedConvex();
-    if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: dealId } = await params;
     const body = await request.json().catch(() => ({}));
+    const convex = await getAuthedConvex();
+    if (!convex && (!body.deal || body.deal.id !== dealId)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const attackMode = Boolean(body.attackMode);
     const preferredActor = body.preferredActor as "buyer_agent" | "seller_agent" | undefined;
 
     // Check if deal exists in Convex or client/demo storage
     let doc: Record<string, unknown> | null = null;
     let isConvexDoc = false;
-    try {
-      // Prefer getForReferee to get both mandates for the server referee
-      doc = await convex.query(api.deals.getForReferee, { dealId: dealId as Id<"deals"> });
-      if (doc) isConvexDoc = true;
-    } catch {
+    if (convex) {
       try {
-        doc = await convex.query(api.deals.get, { dealId: dealId as Id<"deals"> });
+        // Prefer getForReferee to get both mandates for the server referee
+        doc = await convex.query(api.deals.getForReferee, { dealId: dealId as Id<"deals"> });
         if (doc) isConvexDoc = true;
       } catch {
-        isConvexDoc = false;
+        try {
+          doc = await convex.query(api.deals.get, { dealId: dealId as Id<"deals"> });
+          if (doc) isConvexDoc = true;
+        } catch {
+          isConvexDoc = false;
+        }
       }
     }
 
