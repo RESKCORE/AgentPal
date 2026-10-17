@@ -2,20 +2,20 @@
 
 import Image from 'next/image';
 import { motion, easeOut } from 'framer-motion';
-import { MoveRight, Loader2 } from 'lucide-react';
+import { MoveRight, Loader2, ShieldCheck } from 'lucide-react';
+import { useClerk } from '@clerk/nextjs';
 
 export interface LoginCardProps {
-  onGoogleSignIn?: () => void;
-  onGuestSignIn?: () => void;
+  onClerkSignIn?: () => void;
   loading?: boolean;
 }
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
+  hidden: { opacity: 0, y: 15 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.6, ease: easeOut },
+    transition: { duration: 0.5, ease: easeOut },
   },
 };
 
@@ -23,87 +23,109 @@ const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { duration: 0.8, staggerChildren: 0.1 },
+    transition: { duration: 0.6, staggerChildren: 0.08 },
   },
 };
 
-export function LoginCard({ onGoogleSignIn, onGuestSignIn, loading = false }: LoginCardProps) {
+export function LoginCard({ onClerkSignIn, loading = false }: LoginCardProps) {
+  const { openSignIn } = useClerk();
+
+  const handleSignIn = () => {
+    if (onClerkSignIn) {
+      onClerkSignIn();
+    } else if (openSignIn) {
+      openSignIn({ forceRedirectUrl: "/" });
+    } else {
+      window.location.href = "/sign-in";
+    }
+  };
   return (
     <motion.div
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="w-full max-w-md"
+      className="w-full max-w-md relative"
     >
+      {/* Decorative ambient aura behind card */}
+      <div 
+        className="pointer-events-none absolute -inset-4 rounded-3xl opacity-30 blur-2xl -z-10"
+        style={{
+          background: "radial-gradient(circle, rgba(14, 165, 233, 0.4) 0%, rgba(59, 130, 246, 0.2) 50%, transparent 80%)"
+        }}
+      />
+
       <motion.div
         variants={itemVariants}
-        className="bg-white dark:bg-neutral-900 backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-3xl p-8 shadow-2xl"
+        className="glass-panel-dark-elevated border border-zinc-200 rounded-3xl p-8 sm:p-9 shadow-[0_4px_16px_rgba(0,0,0,0.06)] relative overflow-hidden backdrop-blur-2xl"
       >
+        {/* Specular sheen beam across top of card */}
+        <div className="pointer-events-none absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+
         <motion.div variants={itemVariants} className="text-center mb-8">
-          <div className="mx-auto mb-4 h-16 w-16 rounded-2xl bg-slate-950 p-2 shadow-lg flex items-center justify-center border border-slate-800">
+          {/* Logo rendered directly as raw PNG without borders or background */}
+          <div className="mx-auto mb-4 flex justify-center">
             <Image
               src="/logo.png"
               alt="AgentPal Logo"
-              width={56}
-              height={56}
-              className="h-12 w-12 object-contain"
+              width={72}
+              height={72}
+              className="h-14 w-auto object-contain"
               priority
             />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1.5 tracking-tight">
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-100 border border-zinc-200 text-[11px] font-mono text-zinc-600 mb-2.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_#38bdf8]" />
+            AI NEGOTIATION · SAFE SETTLEMENT
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl font-black text-zinc-900 mb-2 tracking-tight font-outfit">
             Welcome to AgentPal
           </h1>
-          <p className="text-gray-600 dark:text-gray-300 text-sm">
-            Sign in to start negotiating
+          <p className="text-zinc-600 text-xs max-w-xs mx-auto leading-relaxed">
+            Autonomous agent deal orchestration governed by zero-LLM deterministic settlement kernels.
           </p>
         </motion.div>
 
-        <motion.div variants={itemVariants} className="space-y-4 mb-6">
+        <motion.div variants={itemVariants} className="space-y-3 mb-6">
           <motion.button
             type="button"
-            onClick={onGoogleSignIn}
+            onClick={handleSignIn}
             disabled={loading}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full bg-gray-100 dark:bg-neutral-800 border border-gray-300 dark:border-white/20 rounded-full px-6 py-4 text-gray-900 dark:text-white flex items-center justify-between hover:bg-gray-200 dark:hover:bg-black/60 transition-colors group disabled:opacity-60 disabled:pointer-events-none"
-          >
-            <div className="flex items-center">
-              <svg viewBox="0 0 24 24" className="w-5 h-5 mr-3" aria-hidden>
-                <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z" />
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24z" />
-                <path fill="#FBBC05" d="M5.27 14.29A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.09z" />
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42A11.97 11.97 0 0 0 12 0 11.99 11.99 0 0 0 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z" />
-              </svg>
-              <span>{loading ? 'Redirecting to Google…' : 'Continue with Google'}</span>
-            </div>
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <MoveRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            )}
-          </motion.button>
-
-          {onGuestSignIn && (
-            <motion.button
-              type="button"
-              onClick={onGuestSignIn}
-              disabled={loading}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-full px-6 py-3.5 text-sm font-medium flex items-center justify-between hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors disabled:opacity-60"
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              className="w-full bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 rounded-2xl px-5 py-3.5 text-zinc-900 flex items-center justify-between transition-all group disabled:opacity-60 disabled:pointer-events-none shadow-sm"
             >
-              <span>Continue as Guest</span>
-              <MoveRight className="w-4 h-4" />
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-6 rounded-lg bg-white flex items-center justify-center shadow-xs">
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 text-blue-600" aria-hidden>
+                    <path d="M12 2c-4.962 0-9 4.037-9 9s4.038 9 9 9 9-4.037 9-9c0-4.963-4.038-9-9-9m0 18c-3.86 0-7-3.141-7-7s3.14-7 7-7 7 3.141 7 7-3.14 7-7 7zm0-14c-2.206 0-4 1.794-4 4s1.794 4 4 4 4-1.794 4-4c0-2.206-1.794-4-4-4z" />
+                  </svg>
+                </div>
+                <span className="text-xs font-bold tracking-wide">
+                  {loading ? 'Signing in with Clerk…' : 'Sign in with Clerk'}
+                </span>
+              </div>
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-600" />
+              ) : (
+                <MoveRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-900 group-hover:translate-x-1 transition-all" />
+              )}
             </motion.button>
-          )}
         </motion.div>
 
-        <motion.p
+        {/* Invariant guarantee footer */}
+        <motion.div 
           variants={itemVariants}
-          className="text-center text-xs text-gray-500 dark:text-gray-400"
+          className="pt-4 border-t border-zinc-200 flex items-center justify-center gap-4 text-[11px] text-zinc-500 font-mono"
         >
-          One account for buying and selling. Payments run in PayPal Sandbox.
-        </motion.p>
+          <span className="flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3 text-emerald-600" />
+            Zero-LLM Kernel
+          </span>
+          <span>·</span>
+          <span>PayPal Sandbox</span>
+        </motion.div>
       </motion.div>
     </motion.div>
   );

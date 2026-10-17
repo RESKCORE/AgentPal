@@ -6,7 +6,7 @@ import { api } from "../convex/_generated/api";
 
 const modules = import.meta.glob("../convex/**/*.*s");
 
-// Identity subjects use the Convex Auth format "<userId>|<sessionId>".
+// Identity subjects are Clerk user ids (the JWT `sub` claim).
 const USERS = {
   seller: { name: "QA Seller", email: "qa-seller@example.test" },
   buyer: { name: "QA Buyer", email: "qa-buyer@example.test" },
@@ -33,18 +33,17 @@ function mandateFor(role: "buyer" | "seller") {
 
 async function setup() {
   const t = convexTest(schema, modules);
-  // Materialize users and build identities whose subject embeds the user id,
-  // exactly how @convex-dev/auth encodes it in production.
-  const ids: Record<string, string> = {};
+  // Materialize the `users` rows and use each Clerk id as the identity subject,
+  // exactly how the Clerk JWT `sub` claim maps to a user in production.
   for (const [key, u] of Object.entries(USERS)) {
-    const id = await t.run(async (ctx) => {
-      return await ctx.db.insert("users", { name: u.name, email: u.email } as unknown as { name?: string; email?: string });
+    const clerkId = `clerktest_${key}`;
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { clerkId, name: u.name, email: u.email });
     });
-    ids[key] = String(id);
+    if (key === "seller") SELLER = { subject: clerkId };
+    if (key === "buyer") BUYER = { subject: clerkId };
+    if (key === "stranger") STRANGER = { subject: clerkId };
   }
-  SELLER = { subject: `${ids.seller}|test-session` };
-  BUYER = { subject: `${ids.buyer}|test-session` };
-  STRANGER = { subject: `${ids.stranger}|test-session` };
   return t;
 }
 
@@ -332,4 +331,53 @@ describe("authz: settlement gating", () => {
       })
     ).rejects.toThrow();
   });
+
+  it("recordRefereeTurn allows participant to record validated AI agent turns", async () => {
+    const t = await setup();
+    const asSeller = t.withIdentity(SELLER);
+    const { dealId, inviteToken } = await asSeller.mutation(api.deals.createDealWithInvite, {
+      title: "bilateral referee turn deal",
+      description: "x",
+      creatorRole: "seller",
+      mandate: mandateFor("seller"),
+    });
+    const asBuyer = t.withIdentity(BUYER);
+    await asBuyer.mutation(api.deals.joinViaMagicLink, { token: inviteToken, mandate: mandateFor("buyer") });
+
+    // Buyer stepping a seller_agent turn via recordRefereeTurn
+    await asBuyer.mutation(api.deals.recordRefereeTurn, {
+      dealId,
+      actor: "seller_agent",
+      type: "offer",
+      payload: { price: 1200, delivery_days: 10, revisions: 2, deposit_pct: 30, message: "Valid opening quote" },
+    });
+
+    const doc = await t.run(async (ctx) => {
+      const match = await ctx.db.query("deals").first();
+      return match;
+    });
+    expect(doc?.events.length).toBe(1);
+    expect(doc?.events[0].actor).toBe("seller_agent");
+
+    // Rejected if out-of-mandate
+    await expect(
+      asBuyer.mutation(api.deals.recordRefereeTurn, {
+        dealId,
+        actor: "seller_agent",
+        type: "offer",
+        payload: { price: 999999, delivery_days: 10, revisions: 2, deposit_pct: 30, message: "Invalid quote" },
+      })
+    ).rejects.toThrow(/violates mandate/i);
+
+    // Rejected if human actor attempted via referee endpoint
+    await expect(
+      asBuyer.mutation(api.deals.recordRefereeTurn, {
+        dealId,
+        actor: "human_seller",
+        type: "offer",
+        payload: { price: 1200, delivery_days: 10, revisions: 2, deposit_pct: 30, message: "Impersonation" },
+      })
+    ).rejects.toThrow(/not allowed for referee turns/i);
+  });
 });
+

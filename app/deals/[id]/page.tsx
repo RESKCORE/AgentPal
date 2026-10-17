@@ -98,8 +98,48 @@ export default function DealRoomPage({ params }: PageProps) {
   const roundCount = events.filter((e) => e.type === "offer").length;
   const maxRounds = deal?.maxRounds || 6;
 
+  const buyerStreamRef = useRef<HTMLDivElement>(null);
+  const sellerStreamRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (buyerStreamRef.current) {
+      buyerStreamRef.current.scrollTop = buyerStreamRef.current.scrollHeight;
+    }
+    if (sellerStreamRef.current) {
+      sellerStreamRef.current.scrollTop = sellerStreamRef.current.scrollHeight;
+    }
+  }, [events.length]);
+
   // Standing offer terms
   const standingOffer = deal?.standingOffer || deal?.contract?.terms || null;
+
+  // Bilateral readiness checks:
+  // On the client, mandate privacy intentionally returns null for the counterparty's private mandate.
+  // Both parties are ready if status is open/beyond, or both parties have mandateSet === true, or both mandates are loaded.
+  const bothPartiesReady = Boolean(
+    deal &&
+      (deal.status === "open" ||
+        deal.status === "tentative_agreement" ||
+        deal.status === "agreed" ||
+        deal.status === "deposit_invoiced" ||
+        deal.status === "paid" ||
+        (deal.buyer?.mandateSet && deal.seller?.mandateSet) ||
+        (Boolean(deal.buyerMandate) && Boolean(deal.sellerMandate)))
+  );
+
+  const isAwaitingCounterparty = Boolean(
+    deal &&
+      deal.status === "setup" &&
+      (!deal.buyer?.mandateSet || !deal.seller?.mandateSet) &&
+      (!deal.buyerMandate || !deal.sellerMandate)
+  );
+
+  // If both parties joined and set mandates while in setup, ensure deal status is open
+  useEffect(() => {
+    if (deal && deal.status === "setup" && deal.buyer?.mandateSet && deal.seller?.mandateSet) {
+      updateDealMutation({ dealId, patch: { status: "open" } }).catch(() => {});
+    }
+  }, [deal, dealId, updateDealMutation]);
 
   // Audit log auto-scroll
   const auditLogRef = useRef<HTMLDivElement>(null);
@@ -166,10 +206,10 @@ export default function DealRoomPage({ params }: PageProps) {
 
   // Handle running next negotiation turn via live AI helper API
   const handleNextTurn = useCallback(
-    async (forcedAttack?: boolean) => {
-      if (!deal || isSubmittingTurn || deal.status !== "open") return;
-      if (!deal.buyerMandate || !deal.sellerMandate) {
-        setTurnError("Both mandates must be set before negotiation starts. Share your invite link or click 'Simulate Counterparty'.");
+    async (forcedAttack?: boolean, preferredActor?: "buyer_agent" | "seller_agent") => {
+      if (!deal || isSubmittingTurn) return;
+      if (!bothPartiesReady) {
+        setTurnError("Both parties must set their mandates before negotiation starts. Share your invite link or click 'Simulate Counterparty'.");
         return;
       }
       setIsSubmittingTurn(true);
@@ -180,7 +220,7 @@ export default function DealRoomPage({ params }: PageProps) {
         const res = await fetch(`/api/deals/${deal.id}/turn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ attackMode: isAttack, deal }),
+          body: JSON.stringify({ attackMode: isAttack, deal, preferredActor }),
         });
 
         if (res.ok) {
@@ -218,7 +258,7 @@ export default function DealRoomPage({ params }: PageProps) {
         setIsSubmittingTurn(false);
       }
     },
-    [deal, isSubmittingTurn]
+    [deal, isSubmittingTurn, bothPartiesReady]
   );
 
   // Auto-play loop
@@ -300,7 +340,7 @@ export default function DealRoomPage({ params }: PageProps) {
         </p>
         <Link
           href="/"
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-semibold shadow-xs"
+          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-zinc-900 font-mono text-xs font-semibold shadow-xs"
         >
           Return to Dashboard
         </Link>
@@ -332,82 +372,96 @@ export default function DealRoomPage({ params }: PageProps) {
     .slice(-1)[0]?.payload?.modelUsed;
 
   return (
-    <div className="bg-[#F8FAFC] font-sans text-slate-800 antialiased min-h-screen flex flex-col">
-      <main className="w-full bg-[#F8FAFC] flex-1 pb-8">
+    <div className="font-sans text-zinc-900 bg-white antialiased min-h-screen flex flex-col relative overflow-hidden">
+      <div 
+        className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[1200px] h-[600px] opacity-25 blur-3xl"
+        style={{
+          background: "radial-gradient(circle, rgba(14, 165, 233, 0.4) 0%, rgba(59, 130, 246, 0.15) 45%, transparent 70%)"
+        }}
+      />
+      <div className="pointer-events-none absolute inset-0 bg-mesh opacity-15" />
+
+      <main className="w-full flex-1 pb-16 relative z-10">
         <div className="w-full px-4 lg:px-8 py-8 flex flex-col gap-6 max-w-[1600px] mx-auto">
           {/* Header & Controls */}
-          <section className="flex flex-col gap-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <section className="glass-panel-dark-elevated rounded-3xl p-6 relative overflow-hidden flex flex-col gap-5 border border-zinc-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)]">
+            {/* Ambient specular highlight */}
+            <div className="pointer-events-none absolute -top-20 right-1/4 h-48 w-72 rounded-full bg-blue-500/10 blur-3xl" />
+
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <Link
                   href="/"
-                  className="w-10 h-10 rounded-xl bg-white border border-[#E2E8F0] hover:bg-slate-50 flex items-center justify-center text-[#475569] shadow-xs transition-colors"
+                  className="w-10 h-10 rounded-xl bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 flex items-center justify-center text-zinc-700 hover:text-zinc-900 transition-all active:scale-95"
                 >
                   <span className="material-symbols-outlined text-[20px]">arrow_back</span>
                 </Link>
                 <div>
                   <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 shrink-0 rounded-lg bg-slate-950 p-1 shadow-xs border border-slate-800 flex items-center justify-center">
-                      <Image
-                        src="/logo.png"
-                        alt="AgentPal Logo"
-                        width={24}
-                        height={24}
-                        className="h-6 w-6 object-contain"
-                        priority
-                      />
-                    </div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight">
+                    <Image
+                      src="/logo.png"
+                      alt="AgentPal Logo"
+                      width={36}
+                      height={36}
+                      className="h-8 w-auto object-contain shrink-0"
+                      priority
+                    />
+                    <h1 className="text-2xl sm:text-3xl font-black text-zinc-900 tracking-tight font-outfit">
                       Deal Room: {deal.title}
                     </h1>
                   </div>
-                  <div className="flex items-center gap-2 font-mono text-xs text-[#64748B] mt-1">
-                    <span>DEAL: {deal.id.slice(0, 16)}</span>
+                  <div className="flex items-center gap-2 font-mono text-xs text-slate-500 mt-1.5 flex-wrap">
+                    <span className="bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/60 text-slate-700 font-semibold">
+                      DEAL #{deal.id.slice(0, 8)}
+                    </span>
                     <span>•</span>
-                    <span>ROUNDS: {roundCount} / {maxRounds}</span>
+                    <span className="font-bold text-zinc-800">ROUNDS: {roundCount} / {maxRounds}</span>
                     <span>•</span>
-                    <span className="text-emerald-700 font-medium">Bilateral Kernel Enforced</span>
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Bilateral Kernel Enforced
+                    </span>
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-3 shrink-0 flex-wrap">
                 {/* Status Pill */}
-                {deal.status === "setup" || (!deal.buyerMandate || !deal.sellerMandate) ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono text-xs font-semibold">
+                {isAwaitingCounterparty ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono text-xs font-bold">
                     <span className="material-symbols-outlined text-[15px]">hourglass_top</span>
                     Awaiting Counterparty
                   </span>
                 ) : deal.status === "open" ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-mono text-xs font-semibold">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono text-xs font-bold">
                     <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600" />
                     </span>
                     Negotiating
                   </span>
                 ) : deal.status === "tentative_agreement" ? (
-                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-300 text-amber-800 font-mono text-xs font-semibold">
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-50 border border-amber-300 text-amber-800 font-mono text-xs font-bold">
                     <span className="material-symbols-outlined text-[15px]">edit_note</span>
                     Awaiting Signatures
                   </span>
                 ) : deal.status === "agreed" ? (
-                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 font-mono text-xs font-bold">
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 font-mono text-xs font-bold">
                     <span className="material-symbols-outlined text-[15px]">check_circle</span>
                     Agreed
                   </span>
                 ) : deal.status === "deposit_invoiced" ? (
-                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono text-xs font-semibold">
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 font-mono text-xs font-bold">
                     <span className="material-symbols-outlined text-[15px]">receipt_long</span>
                     Invoiced
                   </span>
                 ) : deal.status === "paid" ? (
-                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-600 text-white font-mono text-xs font-bold">
-                    <span className="material-symbols-outlined text-[15px]">payments</span>
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-zinc-100 text-zinc-900 font-mono text-xs font-bold shadow-xs">
+                    <span className="material-symbols-outlined text-[15px] text-emerald-600">payments</span>
                     Paid
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-mono text-xs font-semibold">
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-mono text-xs font-bold">
                     <span className="material-symbols-outlined text-[15px]">cancel</span>
                     No Deal
                   </span>
@@ -415,15 +469,15 @@ export default function DealRoomPage({ params }: PageProps) {
 
                 {/* Primary Actions */}
                 <div className="flex items-center gap-2">
-                  {deal.status === "open" && deal.buyerMandate && deal.sellerMandate && (
+                  {bothPartiesReady && deal.status === "open" && (
                     <>
                       <button
                         type="button"
                         onClick={handleToggleAttackMode}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold transition-all ${
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all ${
                           deal.attackMode
-                            ? "bg-rose-50 border-rose-300 text-rose-700"
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                            ? "bg-rose-50 border-rose-300 text-rose-700 shadow-xs"
+                            : "bg-white/80 border-slate-200 text-slate-600 hover:bg-white"
                         }`}
                       >
                         {deal.attackMode ? "Red Team Active" : "Simulate Injection"}
@@ -432,7 +486,7 @@ export default function DealRoomPage({ params }: PageProps) {
                       <button
                         type="button"
                         onClick={() => setTakeoverOpen(true)}
-                        className="px-3.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-mono text-xs font-semibold transition-colors shadow-2xs"
+                        className="glass-panel px-3.5 py-1.5 rounded-xl hover:bg-white text-zinc-900 font-mono text-xs font-bold transition-all shadow-2xs"
                       >
                         Human Takeover
                       </button>
@@ -441,32 +495,32 @@ export default function DealRoomPage({ params }: PageProps) {
                         type="button"
                         onClick={() => handleNextTurn()}
                         disabled={isSubmittingTurn}
-                        className="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-mono text-xs font-semibold transition-colors disabled:opacity-50"
+                        className="glass-panel px-3.5 py-1.5 rounded-xl hover:bg-white text-zinc-900 font-mono text-xs font-bold transition-all shadow-2xs disabled:opacity-50"
                       >
-                        Step Next Turn
+                        {isSubmittingTurn ? "Evaluating..." : "Step Next Turn"}
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setAutoPlaying(!autoPlaying)}
-                        className={`px-4 py-1.5 rounded-lg font-mono text-xs font-semibold transition-all shadow-xs ${
+                        className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all shadow-xs ${
                           autoPlaying
-                            ? "bg-amber-600 hover:bg-amber-700 text-white"
-                            : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                            ? "bg-amber-500 text-zinc-900 hover:bg-amber-600"
+                            : "bg-blue-600 text-white hover:bg-blue-700"
                         }`}
                       >
-                        {autoPlaying ? "Pause Auto" : "Auto-Negotiate"}
+                        {autoPlaying ? "Pause Auto" : "Auto-Negotiate (AI)"}
                       </button>
                     </>
                   )}
 
-                  {(deal.status === "setup" || !deal.buyerMandate || !deal.sellerMandate) && (
+                  {isAwaitingCounterparty && (
                     <button
                       type="button"
                       onClick={handlePopulateSandboxCounterparty}
-                      className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-semibold transition-colors shadow-2xs flex items-center gap-1.5"
+                      className="glossy-btn-dark px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
                     >
-                      <span className="material-symbols-outlined text-[15px]">smart_toy</span>
+                      <span className="material-symbols-outlined text-[15px] text-blue-600">smart_toy</span>
                       <span>Simulate Counterparty (Sandbox)</span>
                     </button>
                   )}
@@ -476,9 +530,9 @@ export default function DealRoomPage({ params }: PageProps) {
                       type="button"
                       onClick={handleConfirm}
                       disabled={signBusy}
-                      className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-sans text-sm font-bold transition-all flex items-center gap-2 shadow-xs active:scale-95 disabled:opacity-50"
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-b from-amber-500 to-amber-700 text-zinc-900 font-sans text-xs font-bold tracking-wide uppercase transition-all flex items-center gap-2 shadow-md active:scale-95 disabled:opacity-50"
                     >
-                      <span className="material-symbols-outlined text-[20px]">draw</span>
+                      <span className="material-symbols-outlined text-[18px]">draw</span>
                       <span>{signBusy ? "Affirming..." : "Affirm & Sign Contract"}</span>
                     </button>
                   )}
@@ -486,9 +540,9 @@ export default function DealRoomPage({ params }: PageProps) {
                   {isClosed && (
                     <Link
                       href={`/deals/${deal.id}/reveal`}
-                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-sm font-bold transition-all flex items-center gap-2 shadow-xs"
+                      className="glossy-btn-blue px-5 py-2.5 rounded-xl font-sans text-xs font-bold tracking-wide uppercase transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
                     >
-                      <span className="material-symbols-outlined text-[20px]">visibility</span>
+                      <span className="material-symbols-outlined text-[18px]">visibility</span>
                       <span>View Reveal &amp; Settlement</span>
                     </Link>
                   )}
@@ -514,7 +568,7 @@ export default function DealRoomPage({ params }: PageProps) {
             )}
 
             {/* Awaiting Counterparty Banner */}
-            {(deal.status === "setup" || !deal.buyerMandate || !deal.sellerMandate) && (
+            {isAwaitingCounterparty && (
               <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-blue-600 text-[20px]">info</span>
@@ -529,6 +583,47 @@ export default function DealRoomPage({ params }: PageProps) {
                     className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-semibold transition-colors"
                   >
                     Simulate Counterparty
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Both Parties Ready Banner */}
+            {bothPartiesReady && deal.status === "open" && events.length === 0 && (
+              <div className="p-4.5 rounded-2xl bg-gradient-to-r from-blue-50 via-indigo-50/70 to-blue-50 border border-blue-200/80 text-blue-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <span className="material-symbols-outlined text-[22px]">smart_toy</span>
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm text-blue-950 flex items-center gap-2">
+                      Both Parties Ready — AI Agents Standing By
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 text-[10px] font-mono font-bold">
+                        Bilateral Mandates Sealed
+                      </span>
+                    </div>
+                    <p className="text-slate-600 text-xs mt-0.5">
+                      Both <strong>{buyerName}</strong> and <strong>{sellerName}</strong> have authorized their sealed parameters. Start automated bilateral negotiation or step turn-by-turn.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleNextTurn()}
+                    disabled={isSubmittingTurn}
+                    className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-mono text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                    {isSubmittingTurn ? "Evaluating..." : "Step Opening Bid"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAutoPlaying(true)}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">smart_toy</span>
+                    Auto-Negotiate (AI)
                   </button>
                 </div>
               </div>
@@ -563,13 +658,13 @@ export default function DealRoomPage({ params }: PageProps) {
           <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Buyer Agent Column (5 Cols) */}
             <div className="lg:col-span-5 flex flex-col gap-4">
-              <div className="p-4 rounded-2xl bg-white border border-[#E2E8F0] shadow-xs flex items-center justify-between">
+              <div className="glass-panel-elevated p-4 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-[#047857] font-bold text-base">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-b from-zinc-800 to-zinc-950 border border-zinc-700/60 flex items-center justify-center text-blue-600 font-black text-base shadow-xs">
                     {buyerName.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-900 text-sm">
+                    <h3 className="font-sans font-black text-zinc-950 text-sm tracking-tight">
                       Buyer Agent ({buyerName})
                     </h3>
                     <span className="font-mono text-xs text-slate-500">
@@ -577,13 +672,16 @@ export default function DealRoomPage({ params }: PageProps) {
                     </span>
                   </div>
                 </div>
-                <span className="font-mono text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-600 font-medium">
+                <span className="font-mono text-xs px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200/60 text-slate-700 font-bold">
                   Buyer Role
                 </span>
               </div>
 
               {/* Buyer Offers Stream */}
-              <div className="flex flex-col gap-3">
+              <div
+                ref={buyerStreamRef}
+                className="flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-zinc-300 scrollbar-track-transparent rounded-2xl"
+              >
                 {events
                   .filter((e) => e.actor.includes("buyer"))
                   .map((ev, idx) => {
@@ -592,46 +690,62 @@ export default function DealRoomPage({ params }: PageProps) {
 
                     if (isBlocked) {
                       return (
-                        <div key={ev.id || idx} className="rounded-2xl bg-rose-50 border border-rose-200 p-4 shadow-xs flex flex-col gap-2">
+                        <div key={ev.id || idx} className="rounded-2xl bg-rose-50/80 border border-rose-200 p-4 shadow-xs flex flex-col gap-2">
                           <div className="flex items-center justify-between">
                             <span className="font-mono text-xs font-bold text-rose-700">Turn Blocked by Kernel</span>
-                            <span className="text-rose-400 font-mono text-xs">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                            <span className="text-rose-600 font-mono text-xs">{new Date(ev.timestamp).toLocaleTimeString()}</span>
                           </div>
-                          <p className="text-xs text-rose-700">
+                          <p className="text-xs text-rose-700 font-mono">
                             {p.blocked_reason || "Offer violated sealed mandate limits."}
                           </p>
                         </div>
                       );
                     }
 
+                    const displayPrice = p.price ?? (ev.type === "accept" && standingOffer?.price != null ? standingOffer.price : (deal.tentativeTerms?.price ?? "—"));
+                    const displayDays = p.delivery_days ?? (ev.type === "accept" && standingOffer?.delivery_days != null ? standingOffer.delivery_days : (deal.tentativeTerms?.delivery_days ?? "—"));
+                    const displayRevs = p.revisions ?? (ev.type === "accept" && standingOffer?.revisions != null ? standingOffer.revisions : (deal.tentativeTerms?.revisions ?? "—"));
+                    const displayDeposit = p.deposit_pct != null
+                      ? `${p.deposit_pct}%`
+                      : ev.type === "accept" && standingOffer?.deposit_pct != null
+                      ? `${standingOffer.deposit_pct}%`
+                      : deal.tentativeTerms?.deposit_pct != null
+                      ? `${deal.tentativeTerms.deposit_pct}%`
+                      : "—";
+
                     return (
-                      <div key={ev.id || idx} className="rounded-2xl bg-white border border-slate-200 p-4 shadow-xs flex flex-col gap-3">
+                      <div key={ev.id || idx} className="banner-offer-card p-4.5 flex flex-col gap-3">
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-bold text-emerald-700">
+                          <span className="font-mono text-xs font-bold text-blue-700 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
                             Turn #{ev.seq} · {ev.type === "accept" ? "Acceptance" : "Offer"}
                           </span>
-                          <span className="text-slate-400 font-mono text-xs">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                          <span className="text-slate-400 font-mono text-[11px]">{new Date(ev.timestamp).toLocaleTimeString()}</span>
                         </div>
-                        <div className="grid grid-cols-4 gap-2 py-2 px-2 bg-slate-50 rounded-xl text-center font-mono text-xs">
+                        <div className="grid grid-cols-4 gap-2 py-2 px-3 bg-white/70 border border-zinc-200 rounded-xl text-center font-mono text-xs shadow-2xs">
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Price</span>
-                            <span className="font-bold text-slate-900">${p.price ?? "—"}</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Price</span>
+                            <span className="font-black text-zinc-950 text-sm">
+                              {typeof displayPrice === "number" ? `$${displayPrice}` : displayPrice}
+                            </span>
                           </div>
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Days</span>
-                            <span className="font-bold text-slate-900">{p.delivery_days ?? "—"}d</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Days</span>
+                            <span className="font-bold text-zinc-800">
+                              {typeof displayDays === "number" ? `${displayDays}d` : displayDays}
+                            </span>
                           </div>
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Revs</span>
-                            <span className="font-bold text-slate-900">{p.revisions ?? "—"}</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Revs</span>
+                            <span className="font-bold text-zinc-800">{displayRevs}</span>
                           </div>
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Deposit</span>
-                            <span className="font-bold text-slate-900">{p.deposit_pct != null ? `${p.deposit_pct}%` : "—"}</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Deposit</span>
+                            <span className="font-bold text-zinc-800">{displayDeposit}</span>
                           </div>
                         </div>
                         {p.message && (
-                          <p className="text-xs text-slate-600 italic">
+                          <p className="text-xs text-slate-600 italic leading-relaxed">
                             &ldquo;{p.message}&rdquo;
                           </p>
                         )}
@@ -640,8 +754,19 @@ export default function DealRoomPage({ params }: PageProps) {
                   })}
 
                 {events.filter((e) => e.actor.includes("buyer")).length === 0 && (
-                  <div className="p-6 bg-white border border-dashed border-slate-200 rounded-2xl text-center text-xs text-slate-400 font-mono">
-                    Awaiting opening bid from buyer agent...
+                  <div className="p-6 banner-offer-card text-center text-xs font-mono border-dashed flex flex-col items-center justify-center gap-2.5">
+                    <span className="text-slate-500 font-sans font-medium">Awaiting opening bid from buyer agent...</span>
+                    {bothPartiesReady && deal.status === "open" && (
+                      <button
+                        type="button"
+                        onClick={() => handleNextTurn(undefined, "buyer_agent")}
+                        disabled={isSubmittingTurn}
+                        className="px-3.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 font-mono text-xs font-bold transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">smart_toy</span>
+                        Dispatch Buyer Opening Bid
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -649,41 +774,72 @@ export default function DealRoomPage({ params }: PageProps) {
 
             {/* Referee Kernel Column (2 Cols) */}
             <div className="lg:col-span-2 flex flex-col items-center gap-4">
-              <div className="w-full rounded-2xl bg-white border border-slate-200 p-5 shadow-xs flex flex-col items-center text-center">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-2">
-                  <span className="material-symbols-outlined text-emerald-700 text-[22px]">gavel</span>
+              <div className="w-full glass-panel-elevated rounded-2xl p-5 flex flex-col items-center text-center">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-b from-zinc-800 to-zinc-950 border border-zinc-700/60 flex items-center justify-center mb-2 text-blue-600 shadow-xs">
+                  <span className="material-symbols-outlined text-[22px]">gavel</span>
                 </div>
-                <h4 className="font-bold text-slate-900 text-sm">Settlement Kernel</h4>
-                <span className="font-mono text-xs text-slate-400">Deterministic Invariants</span>
+                <h4 className="font-sans font-black text-zinc-950 text-sm tracking-tight">Settlement Kernel</h4>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-slate-400 font-bold">Deterministic Check</span>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 w-full space-y-2 text-left font-mono text-xs">
+                <div className="mt-4 pt-3 border-t border-slate-100/80 w-full space-y-2 text-left font-mono text-xs">
                   <div className="flex justify-between text-slate-500">
                     <span>Round:</span>
-                    <span className="font-bold text-slate-900">{roundCount} / {maxRounds}</span>
+                    <span className="font-black text-zinc-950">{roundCount} / {maxRounds}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
                     <span>Standing:</span>
-                    <span className="font-bold text-emerald-700">
+                    <span className="font-black text-blue-700">
                       {standingOffer ? `$${standingOffer.price}` : "None"}
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-500">
                     <span>Leak Guard:</span>
-                    <span className="font-semibold text-emerald-600">Active</span>
+                    <span className="font-bold text-emerald-600 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Active
+                    </span>
                   </div>
                 </div>
+
+                {bothPartiesReady && deal.status === "open" && (
+                  <div className="mt-4 pt-3 border-t border-slate-100/80 w-full flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAutoPlaying(!autoPlaying)}
+                      className={`w-full py-2 px-3 rounded-xl font-mono text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 ${
+                        autoPlaying
+                          ? "bg-amber-500 text-zinc-900 hover:bg-amber-600"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">
+                        {autoPlaying ? "pause" : "smart_toy"}
+                      </span>
+                      {autoPlaying ? "Pause Auto" : "Auto-Negotiate (AI)"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNextTurn()}
+                      disabled={isSubmittingTurn}
+                      className="w-full py-1.5 px-3 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-mono text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-2xs"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">play_arrow</span>
+                      {isSubmittingTurn ? "Evaluating..." : "Step 1 Turn"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Seller Agent Column (5 Cols) */}
             <div className="lg:col-span-5 flex flex-col gap-4">
-              <div className="p-4 rounded-2xl bg-white border border-[#E2E8F0] shadow-xs flex items-center justify-between">
+              <div className="glass-panel-elevated p-4 rounded-2xl flex items-center justify-between">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 font-bold text-base">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-b from-blue-600 to-blue-800 border border-blue-500 flex items-center justify-center text-zinc-900 font-black text-base shadow-xs">
                     {sellerName.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-900 text-sm">
+                    <h3 className="font-sans font-black text-zinc-950 text-sm tracking-tight">
                       Seller Agent ({sellerName})
                     </h3>
                     <span className="font-mono text-xs text-slate-500">
@@ -691,13 +847,16 @@ export default function DealRoomPage({ params }: PageProps) {
                     </span>
                   </div>
                 </div>
-                <span className="font-mono text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-600 font-medium">
+                <span className="font-mono text-xs px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200/60 text-blue-700 font-bold">
                   Seller Role
                 </span>
               </div>
 
               {/* Seller Offers Stream */}
-              <div className="flex flex-col gap-3">
+              <div
+                ref={sellerStreamRef}
+                className="flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-zinc-300 scrollbar-track-transparent rounded-2xl"
+              >
                 {events
                   .filter((e) => e.actor.includes("seller"))
                   .map((ev, idx) => {
@@ -706,46 +865,62 @@ export default function DealRoomPage({ params }: PageProps) {
 
                     if (isBlocked) {
                       return (
-                        <div key={ev.id || idx} className="rounded-2xl bg-rose-50 border border-rose-200 p-4 shadow-xs flex flex-col gap-2">
+                        <div key={ev.id || idx} className="rounded-2xl bg-rose-50/80 border border-rose-200 p-4 shadow-xs flex flex-col gap-2">
                           <div className="flex items-center justify-between">
                             <span className="font-mono text-xs font-bold text-rose-700">Turn Blocked by Kernel</span>
-                            <span className="text-rose-400 font-mono text-xs">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                            <span className="text-rose-600 font-mono text-xs">{new Date(ev.timestamp).toLocaleTimeString()}</span>
                           </div>
-                          <p className="text-xs text-rose-700">
+                          <p className="text-xs text-rose-700 font-mono">
                             {p.blocked_reason || "Offer violated sealed mandate limits."}
                           </p>
                         </div>
                       );
                     }
 
+                    const displayPrice = p.price ?? (ev.type === "accept" && standingOffer?.price != null ? standingOffer.price : (deal.tentativeTerms?.price ?? "—"));
+                    const displayDays = p.delivery_days ?? (ev.type === "accept" && standingOffer?.delivery_days != null ? standingOffer.delivery_days : (deal.tentativeTerms?.delivery_days ?? "—"));
+                    const displayRevs = p.revisions ?? (ev.type === "accept" && standingOffer?.revisions != null ? standingOffer.revisions : (deal.tentativeTerms?.revisions ?? "—"));
+                    const displayDeposit = p.deposit_pct != null
+                      ? `${p.deposit_pct}%`
+                      : ev.type === "accept" && standingOffer?.deposit_pct != null
+                      ? `${standingOffer.deposit_pct}%`
+                      : deal.tentativeTerms?.deposit_pct != null
+                      ? `${deal.tentativeTerms.deposit_pct}%`
+                      : "—";
+
                     return (
-                      <div key={ev.id || idx} className="rounded-2xl bg-white border border-slate-200 p-4 shadow-xs flex flex-col gap-3">
+                      <div key={ev.id || idx} className="banner-offer-card p-4.5 flex flex-col gap-3">
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-bold text-emerald-700">
+                          <span className="font-mono text-xs font-bold text-emerald-700 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
                             Turn #{ev.seq} · {ev.type === "accept" ? "Acceptance" : "Offer"}
                           </span>
-                          <span className="text-slate-400 font-mono text-xs">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                          <span className="text-slate-400 font-mono text-[11px]">{new Date(ev.timestamp).toLocaleTimeString()}</span>
                         </div>
-                        <div className="grid grid-cols-4 gap-2 py-2 px-2 bg-slate-50 rounded-xl text-center font-mono text-xs">
+                        <div className="grid grid-cols-4 gap-2 py-2 px-3 bg-white/70 border border-zinc-200 rounded-xl text-center font-mono text-xs shadow-2xs">
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Price</span>
-                            <span className="font-bold text-slate-900">${p.price ?? "—"}</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Price</span>
+                            <span className="font-black text-zinc-950 text-sm">
+                              {typeof displayPrice === "number" ? `$${displayPrice}` : displayPrice}
+                            </span>
                           </div>
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Days</span>
-                            <span className="font-bold text-slate-900">{p.delivery_days ?? "—"}d</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Days</span>
+                            <span className="font-bold text-zinc-800">
+                              {typeof displayDays === "number" ? `${displayDays}d` : displayDays}
+                            </span>
                           </div>
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Revs</span>
-                            <span className="font-bold text-slate-900">{p.revisions ?? "—"}</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Revs</span>
+                            <span className="font-bold text-zinc-800">{displayRevs}</span>
                           </div>
                           <div>
-                            <span className="text-slate-400 text-[10px] block">Deposit</span>
-                            <span className="font-bold text-slate-900">{p.deposit_pct != null ? `${p.deposit_pct}%` : "—"}</span>
+                            <span className="text-slate-400 text-[10px] block uppercase font-bold">Deposit</span>
+                            <span className="font-bold text-zinc-800">{displayDeposit}</span>
                           </div>
                         </div>
                         {p.message && (
-                          <p className="text-xs text-slate-600 italic">
+                          <p className="text-xs text-slate-600 italic leading-relaxed">
                             &ldquo;{p.message}&rdquo;
                           </p>
                         )}
@@ -754,8 +929,19 @@ export default function DealRoomPage({ params }: PageProps) {
                   })}
 
                 {events.filter((e) => e.actor.includes("seller")).length === 0 && (
-                  <div className="p-6 bg-white border border-dashed border-slate-200 rounded-2xl text-center text-xs text-slate-400 font-mono">
-                    Awaiting opening bid from seller agent...
+                  <div className="p-6 banner-offer-card text-center text-xs font-mono border-dashed flex flex-col items-center justify-center gap-2.5">
+                    <span className="text-slate-500 font-sans font-medium">Awaiting opening bid from seller agent...</span>
+                    {bothPartiesReady && deal.status === "open" && (
+                      <button
+                        type="button"
+                        onClick={() => handleNextTurn(undefined, "seller_agent")}
+                        disabled={isSubmittingTurn}
+                        className="px-3.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 font-mono text-xs font-bold transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">smart_toy</span>
+                        Dispatch Seller Opening Bid
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -763,35 +949,37 @@ export default function DealRoomPage({ params }: PageProps) {
           </section>
 
           {/* Audit Log / Event Stream */}
-          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-xs flex flex-col gap-3">
+          <section className="glass-panel-elevated rounded-3xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-emerald-700 text-[20px]">terminal</span>
-                <h3 className="font-bold text-slate-900 text-sm">Negotiation Audit Event Stream</h3>
+              <div className="flex items-center gap-2.5">
+                <div className="h-7 w-7 rounded-lg bg-zinc-100 text-blue-600 flex items-center justify-center border border-zinc-200">
+                  <span className="material-symbols-outlined text-[18px]">terminal</span>
+                </div>
+                <h3 className="font-sans font-black text-zinc-950 text-sm tracking-tight">Negotiation Audit Event Stream</h3>
               </div>
-              <span className="font-mono text-xs text-slate-400">{events.length} recorded events</span>
+              <span className="font-mono text-xs text-slate-500 font-semibold">{events.length} recorded events</span>
             </div>
 
             <div
               ref={auditLogRef}
-              className="bg-slate-900 rounded-xl p-4 font-mono text-xs text-slate-300 max-h-48 overflow-y-auto space-y-1.5"
+              className="bg-zinc-50 border border-zinc-200 rounded-2xl p-5 font-mono text-xs text-zinc-700 max-h-52 overflow-y-auto space-y-2 shadow-inner"
             >
               {events.length === 0 ? (
                 <div className="text-slate-500 italic">No events recorded in this negotiation room yet.</div>
               ) : (
                 events.map((ev, idx) => (
-                  <div key={ev.id || idx} className="flex items-start gap-2">
-                    <span className="text-slate-500 shrink-0">
+                  <div key={ev.id || idx} className="flex items-start gap-2.5">
+                    <span className="text-slate-500 shrink-0 font-medium">
                       [{new Date(ev.timestamp).toLocaleTimeString()}]
                     </span>
-                    <span className="text-emerald-400 font-semibold shrink-0">
+                    <span className="text-blue-600 font-bold shrink-0">
                       #{ev.seq} {ev.actor}
                     </span>
-                    <span className="text-slate-300">
+                    <span className="text-zinc-700">
                       {ev.type === "offer"
                         ? `proposed price $${ev.payload?.price}, ${ev.payload?.delivery_days}d delivery, ${ev.payload?.revisions} rev, ${ev.payload?.deposit_pct}% deposit`
                         : ev.type === "accept"
-                        ? `accepted standing offer: $${ev.payload?.price}`
+                        ? `accepted standing offer: $${ev.payload?.price ?? standingOffer?.price ?? (deal.tentativeTerms?.price ?? "")}`
                         : ev.type === "blocked"
                         ? `BLOCKED: ${ev.payload?.blocked_reason || "Violated mandate"}`
                         : JSON.stringify(ev.payload || {})}
@@ -892,7 +1080,7 @@ export default function DealRoomPage({ params }: PageProps) {
                 <button
                   type="submit"
                   disabled={isSubmittingTurn}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-zinc-900 font-bold"
                 >
                   Submit Human Offer
                 </button>

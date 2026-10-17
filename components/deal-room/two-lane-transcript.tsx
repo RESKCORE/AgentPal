@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import { Check, X, Bot, Clock, ArrowUp, ArrowDown } from "lucide-react";
 
 export interface DealEventItem {
@@ -34,6 +34,14 @@ export function TwoLaneTranscript({
   isThinking = false,
   thinkingAgent = "buyer",
 }: TwoLaneTranscriptProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [events.length]);
+
   // Compute price movements for each offer compared to previous offer by the same side
   const enrichedEvents = useMemo(() => {
     return events.map((evt, idx) => {
@@ -69,38 +77,45 @@ export function TwoLaneTranscript({
   }, [events]);
 
   return (
-    <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
+    <div className="glass-panel-dark-elevated rounded-3xl overflow-hidden shadow-2xl border border-zinc-200">
       {/* Table Headers */}
-      <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+      <div className="border-b border-zinc-200 bg-zinc-50/80 backdrop-blur-md px-5 py-3.5">
         {/* Desktop 3-column header: Left = Buyer, Center = Referee, Right = Seller */}
         <div
-          className="hidden md:grid items-center text-xs font-bold text-slate-700"
-          style={{ gridTemplateColumns: "1fr 56px 1fr" }}
+          className="hidden md:grid items-center text-xs font-bold text-zinc-900"
+          style={{ gridTemplateColumns: "1fr 64px 1fr" }}
         >
-          <div className="flex items-center gap-2 pl-2">
-            <Bot className="h-4 w-4 text-slate-800" />
-            <span>Buyer agent ({buyerName})</span>
+          <div className="flex items-center gap-2.5 pl-2">
+            <div className="h-6 w-6 rounded-lg bg-zinc-100 text-zinc-900 flex items-center justify-center shadow-inner border border-zinc-200">
+              <Bot className="h-3.5 w-3.5 text-blue-600" />
+            </div>
+            <span className="font-outfit font-bold tracking-tight">Buyer Agent ({buyerName})</span>
           </div>
 
-          <div className="text-center text-[11px] uppercase tracking-wider text-slate-400 font-bold">
+          <div className="text-center text-[10px] uppercase tracking-widest text-zinc-500 font-mono font-bold">
             Referee
           </div>
 
-          <div className="flex items-center justify-end gap-2 pr-2 text-right">
-            <span>Seller agent ({sellerName})</span>
-            <Bot className="h-4 w-4 text-emerald-700" />
+          <div className="flex items-center justify-end gap-2.5 pr-2 text-right">
+            <span className="font-outfit font-bold tracking-tight">Seller Agent ({sellerName})</span>
+            <div className="h-6 w-6 rounded-lg bg-blue-500/20 text-blue-600 flex items-center justify-center shadow-inner border border-blue-500/30">
+              <Bot className="h-3.5 w-3.5 text-blue-600" />
+            </div>
           </div>
         </div>
 
         {/* Mobile single timeline header */}
-        <div className="md:hidden flex items-center justify-between text-xs font-bold text-slate-800">
-          <span>Negotiation Timeline</span>
-          <span className="text-[10px] text-slate-400 font-normal">Referee Verified</span>
+        <div className="md:hidden flex items-center justify-between text-xs font-bold text-zinc-900">
+          <span className="font-outfit">Negotiation Timeline</span>
+          <span className="text-[10px] text-blue-600 font-mono font-semibold">Deterministic Referee</span>
         </div>
       </div>
 
       {/* Transcript Body */}
-      <div className="p-4 sm:p-6 space-y-4 min-h-[320px]">
+      <div
+        ref={scrollRef}
+        className="p-4 sm:p-6 space-y-4 min-h-[320px] max-h-[520px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-zinc-300"
+      >
         {enrichedEvents.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400 text-xs">
             <Clock className="h-8 w-8 mb-2 stroke-[1.5]" />
@@ -119,34 +134,34 @@ export function TwoLaneTranscript({
                   {/* Desktop 3-column row */}
                   <div
                     className="hidden md:grid items-center gap-4"
-                    style={{ gridTemplateColumns: "1fr 56px 1fr" }}
+                    style={{ gridTemplateColumns: "1fr 64px 1fr" }}
                   >
                     {/* Left side: Buyer column */}
                     <div className="min-w-0">
                       {evt.isBuyer ? (
                         <div
-                          className={`p-3.5 rounded-xl border transition-all ${
+                          className={`p-4 rounded-2xl transition-all duration-200 ${
                             isBlocked
-                              ? "border-2 border-dashed border-rose-300 bg-rose-50/50"
+                              ? "border-2 border-dashed border-rose-300 bg-rose-50/60"
                               : isAccept
-                              ? "border-emerald-300 bg-emerald-50/60 shadow-2xs ring-1 ring-emerald-300"
-                              : "border-slate-200 bg-white hover:border-slate-300 shadow-2xs"
+                              ? "banner-offer-card border-emerald-300/80 bg-emerald-50/80 shadow-md ring-1 ring-emerald-300"
+                              : "banner-offer-card hover:border-slate-300"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2 mb-1.5">
                             <span
-                              className={`text-xs font-extrabold ${
+                              className={`text-xs font-black tracking-tight ${
                                 isBlocked
                                   ? "text-rose-700 line-through italic"
                                   : isAccept
                                   ? "text-emerald-800"
-                                  : "text-slate-900"
+                                  : "text-zinc-950 font-sans"
                               }`}
                             >
                               {isAccept ? "Terms Accepted ✓" : `Offer #${evt.seq}`}
                             </span>
                             {evt.changeChip && !isBlocked && !isAccept && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 font-mono">
                                 {evt.changeChip.direction === "up" ? (
                                   <ArrowUp className="h-2.5 w-2.5" />
                                 ) : (
@@ -167,14 +182,14 @@ export function TwoLaneTranscript({
                               </p>
                             </div>
                           ) : (
-                            <div className="space-y-1">
+                            <div className="space-y-1.5">
                               {p.price ? (
-                                <div className="text-xs font-semibold text-slate-800 tabular-nums">
-                                  ${p.price} · {p.delivery_days}d · {p.revisions} rev · {p.deposit_pct}%
+                                <div className="text-sm font-black text-zinc-950 font-mono tracking-tight">
+                                  ${p.price} <span className="text-xs font-medium text-slate-500">· {p.delivery_days}d · {p.revisions} rev · {p.deposit_pct}% dep</span>
                                 </div>
                               ) : null}
                               {p.message && (
-                                <p className="text-[11px] text-slate-600 line-clamp-2 italic">
+                                <p className="text-xs text-slate-600 italic leading-relaxed">
                                   &ldquo;{p.message}&rdquo;
                                 </p>
                               )}
@@ -190,17 +205,17 @@ export function TwoLaneTranscript({
                     <div className="flex flex-col items-center justify-center">
                       {isBlocked ? (
                         <div
-                          className="h-6 w-6 rounded-full bg-rose-100 text-rose-700 border border-rose-300 flex items-center justify-center shadow-2xs"
+                          className="h-7 w-7 rounded-full bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center shadow-2xs"
                           title="Blocked by Settlement Kernel Referee"
                         >
-                          <X className="h-3.5 w-3.5 stroke-[3]" />
+                          <X className="h-4 w-4 stroke-[2.5]" />
                         </div>
                       ) : (
                         <div
-                          className="h-6 w-6 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center justify-center shadow-2xs"
+                          className="h-7 w-7 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shadow-2xs"
                           title="Verified valid inside private mandate"
                         >
-                          <Check className="h-3.5 w-3.5 stroke-[3]" />
+                          <Check className="h-4 w-4 stroke-[2.5]" />
                         </div>
                       )}
                     </div>
@@ -209,28 +224,28 @@ export function TwoLaneTranscript({
                     <div className="min-w-0">
                       {!evt.isBuyer ? (
                         <div
-                          className={`p-3.5 rounded-xl border transition-all ${
+                          className={`p-4 rounded-2xl transition-all duration-200 ${
                             isBlocked
-                              ? "border-2 border-dashed border-rose-300 bg-rose-50/50"
+                              ? "border-2 border-dashed border-rose-300 bg-rose-50/60"
                               : isAccept
-                              ? "border-emerald-300 bg-emerald-50/60 shadow-2xs ring-1 ring-emerald-300"
-                              : "border-slate-200 bg-white hover:border-slate-300 shadow-2xs"
+                              ? "banner-offer-card border-emerald-300/80 bg-emerald-50/80 shadow-md ring-1 ring-emerald-300"
+                              : "banner-offer-card hover:border-blue-200/80"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2 mb-1.5">
                             <span
-                              className={`text-xs font-extrabold ${
+                              className={`text-xs font-black tracking-tight ${
                                 isBlocked
                                   ? "text-rose-700 line-through italic"
                                   : isAccept
                                   ? "text-emerald-800"
-                                  : "text-slate-900"
+                                  : "text-zinc-950 font-sans"
                               }`}
                             >
                               {isAccept ? "Terms Accepted ✓" : `Offer #${evt.seq}`}
                             </span>
                             {evt.changeChip && !isBlocked && !isAccept && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 font-mono">
                                 {evt.changeChip.direction === "up" ? (
                                   <ArrowUp className="h-2.5 w-2.5" />
                                 ) : (
@@ -251,14 +266,14 @@ export function TwoLaneTranscript({
                               </p>
                             </div>
                           ) : (
-                            <div className="space-y-1">
+                            <div className="space-y-1.5">
                               {p.price ? (
-                                <div className="text-xs font-semibold text-slate-800 tabular-nums">
-                                  ${p.price} · {p.delivery_days}d · {p.revisions} rev · {p.deposit_pct}%
+                                <div className="text-sm font-black text-zinc-950 font-mono tracking-tight">
+                                  ${p.price} <span className="text-xs font-medium text-slate-500">· {p.delivery_days}d · {p.revisions} rev · {p.deposit_pct}% dep</span>
                                 </div>
                               ) : null}
                               {p.message && (
-                                <p className="text-[11px] text-slate-600 line-clamp-2 italic">
+                                <p className="text-xs text-slate-600 italic leading-relaxed">
                                   &ldquo;{p.message}&rdquo;
                                 </p>
                               )}

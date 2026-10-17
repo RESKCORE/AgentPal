@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { getConvexHttp } from "@/lib/convex";
+import { getAuthedConvex } from "@/lib/convex";
 import { SettlementKernel } from "@/lib/settlement-kernel";
 import { generateAgentTurnWithOpenRouter } from "@/lib/openrouter";
 import { toDealData, type DealData, type Offer, type DealOfferEvent } from "@/lib/deal-store";
@@ -13,29 +12,26 @@ interface RouteParams {
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
-    const token = await convexAuthNextjsToken();
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const convex = await getAuthedConvex();
+    if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id: dealId } = await params;
     const body = await request.json().catch(() => ({}));
     const attackMode = Boolean(body.attackMode);
-    const convex = getConvexHttp();
-    convex.setAuth(token);
+    const preferredActor = body.preferredActor as "buyer_agent" | "seller_agent" | undefined;
 
     // Check if deal exists in Convex or client/demo storage
     let doc: Record<string, unknown> | null = null;
     let isConvexDoc = false;
-    if (!dealId.includes("-") || dealId.length > 20) {
+    try {
+      // Prefer getForReferee to get both mandates for the server referee
+      doc = await convex.query(api.deals.getForReferee, { dealId: dealId as Id<"deals"> });
+      if (doc) isConvexDoc = true;
+    } catch {
       try {
-        // Prefer getForReferee to get both mandates for the server referee
-        doc = await convex.query(api.deals.getForReferee, { dealId: dealId as Id<"deals"> });
+        doc = await convex.query(api.deals.get, { dealId: dealId as Id<"deals"> });
         if (doc) isConvexDoc = true;
       } catch {
-        try {
-          doc = await convex.query(api.deals.get, { dealId: dealId as Id<"deals"> });
-          if (doc) isConvexDoc = true;
-        } catch {
-          isConvexDoc = false;
-        }
+        isConvexDoc = false;
       }
     }
 
@@ -100,12 +96,21 @@ export async function POST(request: Request, { params }: RouteParams) {
       };
       deal.events.push(evt);
       if (isConvexDoc) {
-        await convex.mutation(api.deals.appendEvent, {
-          dealId: dealId as Id<"deals">,
-          actor,
-          type,
-          payload,
-        }).catch(() => {});
+        try {
+          await convex.mutation(api.deals.recordRefereeTurn, {
+            dealId: dealId as Id<"deals">,
+            actor,
+            type,
+            payload,
+          });
+        } catch {
+          await convex.mutation(api.deals.appendEvent, {
+            dealId: dealId as Id<"deals">,
+            actor,
+            type,
+            payload,
+          }).catch(() => {});
+        }
       }
       return evt;
     };
@@ -121,8 +126,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     };
 
     const lastEvent = deal.events[deal.events.length - 1];
-    const isSellerTurn =
-      !lastEvent || lastEvent.actor === "buyer_agent" || lastEvent.actor === "human_buyer";
+    const isSellerTurn = preferredActor
+      ? preferredActor === "seller_agent"
+      : !lastEvent
+      ? deal.creatorRole === "buyer"
+      : lastEvent.actor === "buyer_agent" || lastEvent.actor === "human_buyer";
 
     const actingRole: "buyer" | "seller" = isSellerTurn ? "seller" : "buyer";
     const actingMandate = isSellerTurn ? deal.sellerMandate : deal.buyerMandate;
@@ -171,6 +179,10 @@ export async function POST(request: Request, { params }: RouteParams) {
           isSellerTurn ? "seller_agent" : "buyer_agent",
           "accept",
           {
+            price: deal.standingOffer.price,
+            delivery_days: deal.standingOffer.delivery_days,
+            revisions: deal.standingOffer.revisions,
+            deposit_pct: deal.standingOffer.deposit_pct,
             message: response.message || `Agreed to standing offer of $${deal.standingOffer.price}!`,
             modelUsed: llmResult.modelUsed,
           }

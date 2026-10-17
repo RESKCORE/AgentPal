@@ -206,7 +206,7 @@ export function TreeNav({
             >
               <span className="truncate">{item.label}</span>
               {item.badge && (
-                <span className="inline-flex h-[18px] shrink-0 items-center rounded-[6px] bg-[#2b7fff]/8 px-[5px] text-xs font-medium leading-none text-[#1447e6] dark:bg-[#2b7fff]/[0.14] dark:text-blue-400">
+                <span className="inline-flex h-[18px] shrink-0 items-center rounded-[6px] bg-[#2b7fff]/8 px-[5px] text-xs font-medium leading-none text-[#1447e6] dark:bg-[#2b7fff]/[0.14] dark:text-blue-600">
                   {item.badge}
                 </span>
               )}

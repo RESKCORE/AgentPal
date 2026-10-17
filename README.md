@@ -22,7 +22,7 @@
   <a href="https://paypalaihackathon.devpost.com/"><img src="https://img.shields.io/badge/PayPal_AI_Hackathon-2026-003087?style=flat-square&logo=paypal" alt="PayPal AI Hackathon 2026" /></a>
   <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16.3.8-black?style=flat-square&logo=next.js" alt="Next.js 16" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0-3178C6?style=flat-square&logo=typescript" alt="TypeScript 5" /></a>
-  <a href="https://vitest.dev/"><img src="https://img.shields.io/badge/Vitest-67%2F67_Passing-47A248?style=flat-square&logo=vitest" alt="Vitest 67/67" /></a>
+  <a href="https://vitest.dev/"><img src="https://img.shields.io/badge/Vitest-77%2F77_Passing-47A248?style=flat-square&logo=vitest" alt="Vitest 77/77" /></a>
   <a href="https://playwright.dev/"><img src="https://img.shields.io/badge/Playwright-7%2F7_Passing-45ba4b?style=flat-square&logo=playwright" alt="Playwright 7/7" /></a>
   <a href="#8-security-model--threat-analysis"><img src="https://img.shields.io/badge/Prompt_Injection-Deterministically_Bounded-10B981?style=flat-square" alt="Security Invariants" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License MIT" /></a>
@@ -58,8 +58,9 @@
   - [Live PayPal Sandbox Verification](#live-paypal-sandbox-verification)
 - [7. Hackathon Demo Walkthrough (3-Minute Script)](#7-hackathon-demo-walkthrough-3-minute-script)
 - [8. Security Model & Threat Analysis](#8-security-model--threat-analysis)
-- [9. Limitations](#9-limitations)
-- [10. Roadmap & Project Vision](#10-roadmap--project-vision)
+- [9. Comparison with Other RESKCORE Projects](#9-comparison-with-other-reskcore-projects)
+- [10. Limitations](#10-limitations)
+- [11. Roadmap & Project Vision](#11-roadmap--project-vision)
 
 ---
 
@@ -398,7 +399,18 @@ npm test
  ✓ lib/settlement-idempotency.test.ts (2 tests)
    ✓ confirms PayPal-Request-Id is derived deterministically from contractHash
    ✓ ensures two concurrent settle calls create exactly ONE invoice
+ ✓ tests/paypal-executor-sandbox.test.ts (1 test)
+   ✓ successfully creates and sends a deposit invoice in live sandbox
+ ✓ tests/paypal-invoice-urls.test.ts (4 tests)
+   ✓ sanitizes legacy URLs containing #INV2- and hyphens
+   ✓ handles valid official recipient URLs without altering valid hashes
  ✓ tests/data-authenticity-and-store.test.ts (3 tests)
+   ✓ fresh account does NOT auto-seed demo deals
+   ✓ purges legacy demo records if present in storage
+ ✓ tests/paypal-sandbox-config.test.ts (6 tests)
+   ✓ rejects live mode explicitly
+   ✓ rejects production spelling
+   ✓ rejects missing or placeholder credentials
  ✓ lib/settlement-kernel.test.ts (37 tests)
    ✓ validateOffer: price boundaries (min/max)
    ✓ validateOffer: delivery days boundaries
@@ -416,11 +428,17 @@ npm test
    ✓ property-based testing: validateOffer iff terms within mandate (100 runs)
    ✓ property-based testing: contracts contain terms inside both mandates (100 runs)
    ✓ property-based testing: injection messages do not alter invariant validation (100 runs)
- ✓ tests/paypal-sandbox-config.test.ts (6 tests)
- ✓ tests/convex-authz.test.ts (15 tests)
+ ✓ tests/deterministic-fallback.test.ts (4 tests)
+   ✓ mandate-clamped buyer opening bid & concession
+   ✓ mandate-clamped seller opening bid & concession
+   ✓ exact term mirroring on acceptance
+ ✓ tests/convex-authz.test.ts (16 tests)
+   ✓ caller isolation & stranger access rejection
+   ✓ mandate secrecy during active negotiation
+   ✓ dual-human confirmation requirement before contract sealing
 
-Test Files  6 passed (6)
-     Tests  67 passed (67)
+Test Files  9 passed (9)
+     Tests  77 passed (77)
 ```
 
 ### Playwright End-to-End Suite
@@ -494,7 +512,26 @@ This verifies:
 
 ---
 
-## 9. Limitations
+## 9. Comparison with Other RESKCORE Projects
+
+AgentPal represents an architectural milestone within the [@RESKCORE](https://github.com/RESKCORE) engineering portfolio, bringing together the distributed real-time patterns explored in earlier systems with a novel, safety-critical approach to agentic autonomy and financial settlement:
+
+| Project | Primary Focus & Domain | Technology Stack | Core Architectural Paradigm | Relationship to AgentPal |
+| :--- | :--- | :--- | :--- | :--- |
+| **[AgentPal](https://github.com/RESKCORE/AgentPal)** | **Autonomous Bilateral AI Negotiation & Deterministic Escrow** | **Next.js 16, TypeScript, Convex, Clerk, PayPal Sandbox REST** | **Zero-LLM Settlement Kernel & Inverted Financial Authority** | **Current Flagship**: Eliminates agent hallucination and prompt-injection risks in commercial agreements through mathematical mandate bounds and cryptographic contract sealing. |
+| **[KRUZZ](https://github.com/RESKCORE/KRUZZ)** | Interactive System Architecture & Distributed Systems Case Studies | Next.js, TypeScript, Convex, Recharts, Mermaid.js | Reactive State Sync & Visual System Modeling | **Architectural Predecessor**: AgentPal leverages the high-throughput Convex reactive state synchronization and mental-model diagramming conventions originally refined in KRUZZ. |
+| **[MEDCORE-MCP](https://github.com/RESKCORE/MEDCORE-MCP)** | Medical Context Protocol Server for Healthcare Workflows | Python, FastMCP, Pydantic | Tool-Augmented LLM Capabilities (Model Context Protocol) | **Inverted Paradigm**: While MEDCORE-MCP explores giving LLMs structured access to external tools via MCP, AgentPal establishes the inverse boundary—deliberately *denying* payment credentials to the LLM and delegating execution to a deterministic referee. |
+| **[Daily_Planner_Crew_AI](https://github.com/RESKCORE/Daily_Planner_Crew_AI)** | Multi-Agent Collaborative Task Scheduling | Python, CrewAI, LangChain | Unconstrained Collaborative Multi-Agent Mesh | **Evolution to Bounded Safety**: Multi-agent meshes like CrewAI operate on cooperative assumptions. AgentPal solves the mixed-motive, potentially adversarial commercial setting where agents must be bounded by rigid financial and legal invariants. |
+| **[Nexus](https://github.com/RESKCORE/Nexus)** / **[KLAROS](https://github.com/RESKCORE/KLAROS)** / **[AirSafe-IN](https://github.com/RESKCORE/AirSafe-IN)** | Full-Stack Cloud & Environmental Analytics Platforms | TypeScript, React, Next.js, Vercel | Production Cloud Micro-Frontends & High-Fidelity UX | **UX Foundation**: AgentPal incorporates the polished UI design tokens, floating dock navigation, and accessible ergonomics proven across these production deployments. |
+
+### Key Architectural Evolution in AgentPal:
+1. **From Unbounded Tool-Calling to Deterministic Enclaves**: Rather than granting LLMs direct API capabilities (e.g. PayPal transfer functions), AgentPal treats LLM output strictly as an *untrusted proposal*. Real actions are mediated by an isolated TypeScript state machine.
+2. **From Cooperative Swarms to Adversarial Bilateral Bargaining**: Standard agent frameworks assume agents have unified goals. AgentPal introduces economic game theory (ZOPA, reservation prices, surplus split) between competing parties with strict information asymmetry (private sealed mandates).
+3. **From Ephemeral State to Cryptographically Sealed Audits**: Agreements are mathematically bound into SHA-256 contract hashes, creating an immutable audit trail from initial offer to PayPal Sandbox invoice dispatch.
+
+---
+
+## 10. Limitations
 
 - **PayPal Sandbox Only:** Operates strictly within the PayPal Sandbox environment (`api-m.sandbox.paypal.com`). Real monetary transfers are excluded by architectural design.
 - **Evaluation Modes:** The Deal Room supports both bilateral two-party negotiations (via shareable invite links) and rapid single-browser evaluation via the "Simulate Counterparty (Sandbox)" button.
@@ -505,7 +542,7 @@ This verifies:
 
 ---
 
-## 10. Roadmap & Project Vision
+## 11. Roadmap & Project Vision
 
 - [x] **Milestone 1:** Pure TypeScript Settlement Kernel with 37-test Vitest suite (including fast-check property tests).
 - [x] **Milestone 2:** Multi-turn autonomous negotiation engine (Google Gemini + OpenRouter fallback).
@@ -514,7 +551,8 @@ This verifies:
 - [x] **Milestone 5:** The Reveal UI with interactive ZOPA visualization and economic surplus analysis.
 - [x] **Milestone 6:** Red Team Attack Mode for live prompt-injection vulnerability demonstration.
 - [x] **Milestone 7:** Message leak detection guard and integer cents financial calculations.
-- [ ] **Milestone 8 (Future):** Multi-agent mediation tournaments and cross-currency escrow support via PayPal Commerce Platform.
+- [x] **Milestone 8:** Dual human confirmation gate and Two-Lane visual arena transcript.
+- [ ] **Milestone 9 (Future):** Multi-agent mediation tournaments and cross-currency escrow support via PayPal Commerce Platform.
 
 ---
 
@@ -523,3 +561,4 @@ This verifies:
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 Built with dedication for the **PayPal AI Hackathon 2026**.
+

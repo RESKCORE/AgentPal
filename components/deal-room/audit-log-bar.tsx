@@ -78,15 +78,15 @@ export function AuditLogBar({ events, dealId }: AuditLogBarProps) {
         </div>
       </div>
 
-      <div className="p-3 bg-slate-900 text-slate-300 font-mono text-[11px] leading-relaxed overflow-x-auto whitespace-nowrap">
+      <div className="p-3 bg-zinc-100 text-zinc-700 font-mono text-[11px] leading-relaxed overflow-x-auto whitespace-nowrap">
         {auditEntries.length === 0 ? (
           <span className="text-slate-500 italic">No events recorded in audit log yet.</span>
         ) : expanded ? (
           <div className="space-y-1 whitespace-normal">
             {auditEntries.map((line, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="text-emerald-400 font-bold select-none">&gt;</span>
-                <span className={line.includes("blocked") ? "text-rose-400" : "text-slate-300"}>
+                <span className="text-emerald-600 font-bold select-none">&gt;</span>
+                <span className={line.includes("blocked") ? "text-rose-600" : "text-zinc-700"}>
                   {line}
                 </span>
               </div>

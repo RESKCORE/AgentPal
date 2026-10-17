@@ -23,11 +23,50 @@ export interface PayPalInvoiceResult {
   recipientEmail: string;
   invoicerEmail: string;
   viewUrl: string;
+  invoicerUrl?: string;
   createdAt: string;
   paidAt?: string;
   mode: 'sandbox';
   isLiveApi: boolean;
   error?: string;
+}
+
+/**
+ * Safely resolves and formats both Payer and Merchant view URLs for a PayPal invoice.
+ * PayPal Payer view URL requires the alphanumeric token without "INV2-" and without hyphens:
+ * e.g. https://www.sandbox.paypal.com/invoice/p/#S736W5PTV8Z2D57M
+ * Merchant view URL uses the full invoice ID:
+ * e.g. https://www.sandbox.paypal.com/invoice/details/INV2-S736-W5PT-V8Z2-D57M
+ */
+export function formatPayPalInvoiceUrls(
+  invoiceId?: string,
+  rawViewUrl?: string,
+  rawInvoicerUrl?: string
+): { viewUrl: string | null; invoicerUrl: string | null; cleanHash: string | null } {
+  if (!invoiceId && !rawViewUrl) {
+    return { viewUrl: null, invoicerUrl: null, cleanHash: null };
+  }
+
+  const id = invoiceId || '';
+  const cleanHash = id ? id.replace(/^INV2-?/i, '').replace(/-/g, '') : null;
+
+  // Sanitize any existing/legacy viewUrl that contains '#INV2-' or hyphens
+  let viewUrl = rawViewUrl || null;
+  if (viewUrl && viewUrl.includes('/invoice/p/#')) {
+    const parts = viewUrl.split('#');
+    const hash = parts[1] || '';
+    const sanitized = hash.replace(/^INV2-?/i, '').replace(/-/g, '');
+    viewUrl = sanitized ? `${parts[0]}#${sanitized}` : null;
+  } else if (!viewUrl && cleanHash) {
+    viewUrl = `https://www.sandbox.paypal.com/invoice/p/#${cleanHash}`;
+  }
+
+  let invoicerUrl = rawInvoicerUrl || null;
+  if (!invoicerUrl && id && !id.startsWith('pending')) {
+    invoicerUrl = `https://www.sandbox.paypal.com/invoice/details/${id}`;
+  }
+
+  return { viewUrl, invoicerUrl, cleanHash };
 }
 
 export interface SandboxConfig {
@@ -80,6 +119,9 @@ export class SettlementExecutor {
     const invoiceNumber = `DEP-${contract.deal_id.slice(0, 6).toUpperCase()}-${Date.now().toString().slice(-4)}`;
     const today = new Date().toISOString().split('T')[0];
 
+    const merchantSellerEmail = process.env.PAYPAL_SELLER_EMAIL || sellerEmail || 'sb-xxf2153180921@business.example.com';
+    const recipientBuyerEmail = buyerEmail || process.env.PAYPAL_BUYER_EMAIL || 'sb-u3a54353183177@personal.example.com';
+
     const token = await this.getAccessToken(config.clientId, config.clientSecret);
     const invoicePayload = {
       detail: {
@@ -89,12 +131,12 @@ export class SettlementExecutor {
         note: `AgentPal Deal Deposit (${depositPct}% upfront for ${terms.message || 'agreed terms'}). Contract Hash: ${contract.hash}`,
       },
       invoicer: {
-        email_address: sellerEmail,
+        email_address: merchantSellerEmail,
       },
       primary_recipients: [
         {
           billing_info: {
-            email_address: buyerEmail,
+            email_address: recipientBuyerEmail,
           },
         },
       ],
@@ -141,9 +183,50 @@ export class SettlementExecutor {
       },
       body: JSON.stringify({ send_to_recipient: true }),
     });
+
     if (!sendRes.ok && sendRes.status !== 202 && sendRes.status !== 204) {
-      throw new Error(`PayPal Sandbox invoice send failed (HTTP ${sendRes.status}).`);
+      const errText = await sendRes.text().catch(() => '');
+      let detailMsg = '';
+      try {
+        const errObj = JSON.parse(errText);
+        detailMsg =
+          errObj.details?.map((d: { description?: string; issue?: string }) => d.description || d.issue).join('; ') ||
+          errObj.message ||
+          '';
+      } catch {}
+      console.warn(`[PayPal Executor] Invoice ${invoiceId} send notice returned ${sendRes.status}: ${detailMsg || errText}`);
+
+      // If send notification failed with 422, the invoice itself was already successfully created in sandbox
+      // and can still be viewed/settled. For other errors, fail with descriptive message.
+      if (sendRes.status !== 422) {
+        throw new Error(
+          `PayPal Sandbox invoice send failed (HTTP ${sendRes.status}): ${detailMsg || errText.slice(0, 150)}`
+        );
+      }
     }
+
+    // Query PayPal invoice detail to retrieve official recipient_view_url and invoicer_view_url
+    let officialRecipientUrl: string | undefined;
+    let officialInvoicerUrl: string | undefined;
+
+    try {
+      const getRes = await fetch(`https://api-m.sandbox.paypal.com/v2/invoicing/invoices/${invoiceId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (getRes.ok) {
+        const invDetail = await getRes.json();
+        officialRecipientUrl = invDetail.detail?.metadata?.recipient_view_url;
+        officialInvoicerUrl = invDetail.detail?.metadata?.invoicer_view_url;
+      }
+    } catch {
+      // Fallback handled by formatPayPalInvoiceUrls
+    }
+
+    const { viewUrl, invoicerUrl } = formatPayPalInvoiceUrls(
+      invoiceId,
+      officialRecipientUrl,
+      officialInvoicerUrl
+    );
 
     return {
       success: true,
@@ -155,9 +238,10 @@ export class SettlementExecutor {
       amountCents: depositCents,
       currency: 'USD',
       status: 'SENT',
-      recipientEmail: buyerEmail,
-      invoicerEmail: sellerEmail,
-      viewUrl: `https://www.sandbox.paypal.com/invoice/p/#${invoiceId}`,
+      recipientEmail: recipientBuyerEmail,
+      invoicerEmail: merchantSellerEmail,
+      viewUrl: viewUrl || `https://www.sandbox.paypal.com/invoice/details/${invoiceId}`,
+      invoicerUrl: invoicerUrl || `https://www.sandbox.paypal.com/invoice/details/${invoiceId}`,
       createdAt: new Date().toISOString(),
       mode: 'sandbox',
       isLiveApi: true,
@@ -179,6 +263,36 @@ export class SettlementExecutor {
     }
     const data = await res.json();
     return { status: data.status, paidAt: data.metadata?.paid_date || data.paid_date };
+  }
+
+  /**
+   * Records a settlement payment for an invoice in the PayPal Developer Sandbox environment.
+   * Calls PayPal Invoicing API v2 POST /v2/invoicing/invoices/{id}/payments.
+   */
+  static async recordSandboxPayment(invoiceId: string): Promise<{ status: string; paidAt?: string }> {
+    const config = getSandboxConfig();
+    const token = await this.getAccessToken(config.clientId, config.clientSecret);
+    const today = new Date().toISOString().split('T')[0];
+
+    const res = await fetch(`https://api-m.sandbox.paypal.com/v2/invoicing/invoices/${invoiceId}/payments`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        method: 'BANK_TRANSFER',
+        payment_date: today,
+        note: 'Settled in PayPal Developer Sandbox environment',
+      }),
+    });
+
+    if (!res.ok && res.status !== 200 && res.status !== 201) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`PayPal record payment returned HTTP ${res.status}: ${text.slice(0, 150)}`);
+    }
+
+    return this.getInvoiceStatus(invoiceId);
   }
 
   private static async getAccessToken(clientId: string, clientSecret: string): Promise<string> {

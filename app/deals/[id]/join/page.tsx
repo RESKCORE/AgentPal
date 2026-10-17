@@ -2,8 +2,8 @@
 
 import { use, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
-import { useAuthActions, useConvexAuth } from "@convex-dev/auth/react";
+import { useMutation, useQuery, useConvexAuth } from "convex/react";
+import { useClerk } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Link2, ShieldX, Clock, Briefcase, Store } from "lucide-react";
 import { MandateForm } from "@/components/deal-room/mandate-form";
@@ -22,7 +22,7 @@ export default function JoinDealPage({ params }: PageProps) {
   const invite = useQuery(api.deals.getByInviteToken, { token });
   const joinViaMagicLink = useMutation(api.deals.joinViaMagicLink);
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const { signIn } = useAuthActions();
+  const { openSignIn } = useClerk();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,10 +73,14 @@ export default function JoinDealPage({ params }: PageProps) {
               &quot;{invite.title}&quot;. Sign in to accept and set your sealed mandate.
             </p>
             <LoginCard
-              onGoogleSignIn={() => {
-                void signIn("google", {
-                  redirectTo: `/deals/${invite.dealId}/join?token=${token}`,
-                });
+              onClerkSignIn={() => {
+                if (openSignIn) {
+                  openSignIn({
+                    forceRedirectUrl: `/deals/${invite.dealId}/join?token=${token}`,
+                  });
+                } else {
+                  router.push(`/sign-in?redirect_url=${encodeURIComponent(`/deals/${invite.dealId}/join?token=${token}`)}`);
+                }
               }}
             />
           </div>
@@ -100,7 +104,7 @@ export default function JoinDealPage({ params }: PageProps) {
             {/* Welcome card */}
             <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <div className="h-10 w-10 rounded-xl bg-emerald-600 text-zinc-900 flex items-center justify-center shrink-0">
                   <Link2 className="h-5 w-5" />
                 </div>
                 <div>

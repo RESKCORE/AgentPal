@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { getConvexHttp } from "@/lib/convex";
+import { getAuthedConvex } from "@/lib/convex";
 import { SettlementExecutor } from "@/lib/paypal/executor";
 import { toDealData, type DealData } from "@/lib/deal-store";
 import { SettlementKernel } from "@/lib/settlement-kernel";
@@ -14,12 +13,10 @@ interface RouteParams {
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
-    const token = await convexAuthNextjsToken();
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const convex = await getAuthedConvex();
+    if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
-    const convex = getConvexHttp();
-    convex.setAuth(token);
 
     // Check if id is a Convex ID or client/demo ID
     let doc: Record<string, unknown> | null = null;
@@ -139,7 +136,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ success: true, invoice });
     }
 
-    if (body.action === "paid") {
+    if (body.action === "paid" || body.action === "simulate_payment") {
       if (!deal.paypalInvoice) {
         return NextResponse.json({ error: "No invoice to mark paid" }, { status: 400 });
       }
@@ -148,6 +145,18 @@ export async function POST(request: Request, { params }: RouteParams) {
           { error: "Payment state is only recorded server-side for persisted deals." },
           { status: 400 }
         );
+      }
+
+      // If explicitly requested, record simulated payment against the live PayPal Sandbox invoice
+      if (body.action === "simulate_payment") {
+        try {
+          await SettlementExecutor.recordSandboxPayment(deal.paypalInvoice.invoiceId);
+        } catch (simErr: unknown) {
+          return NextResponse.json(
+            { error: simErr instanceof Error ? simErr.message : "Failed to record payment in PayPal Sandbox" },
+            { status: 502 }
+          );
+        }
       }
 
       // Payment confirmation must come from the provider, never from a client assertion.
@@ -176,11 +185,9 @@ export async function POST(request: Request, { params }: RouteParams) {
 
 export async function GET(request: Request, { params }: RouteParams) {
   try {
-    const token = await convexAuthNextjsToken();
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const convex = await getAuthedConvex();
+    if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await params;
-    const convex = getConvexHttp();
-    convex.setAuth(token);
 
     let doc: Record<string, unknown> | null = null;
     if (!id.includes("-") || id.length > 20) {

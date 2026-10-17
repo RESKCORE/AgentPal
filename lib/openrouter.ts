@@ -44,18 +44,22 @@ export interface OpenRouterTurnResult {
 
 // Recommended Gemini models (Tier 1 Primary)
 const GEMINI_MODELS = [
+  "gemini-flash-lite-latest",
+  "gemini-3.5-flash-lite",
   "gemini-3.8-flash",
-  "gemini-3.7-flash",
   "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
+  "gemma-4-26b-a4b-it",
 ];
 
 // Recommended free models on OpenRouter (Tier 2 Fallback)
 const OPENROUTER_FREE_MODELS = [
-  process.env.OPENROUTER_MODEL || "qwen/qwen3.8-27b:free",
-  "nvidia/nemotron-3.5-lightning:free",
-  "liquid/lfm-2.5-2.6b:free",
+  "openrouter/free",
+  "google/gemma-4-31b-it:free",
   "google/gemma-4-26b-a4b-it:free",
+  "nvidia/nemotron-3.5-lightning:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "liquid/lfm-2.5-2.6b:free",
+  "poolside/laguna-s-2.1:free",
 ];
 
 function getEnvKey(keyName: string, prefix?: string): string {
@@ -156,10 +160,11 @@ IMPORTANT NEGOTIATION RULES:
 }`;
 
   let conversationContext = "CONVERSATION HISTORY OF PUBLIC OFFERS SO FAR:\n";
-  if (input.history.length === 0) {
+  const recentHistory = input.history.slice(-6);
+  if (recentHistory.length === 0) {
     conversationContext += "No offers made yet. You are making the opening offer.\n";
   } else {
-    for (const h of input.history) {
+    for (const h of recentHistory) {
       if (h.type === "offer") {
         conversationContext += `- ${h.actor}: Offered $${h.price}, ${h.delivery_days} days, ${h.revisions} revisions, ${h.deposit_pct}% deposit. Note: "${h.message}"\n`;
       } else if (h.type === "blocked") {
@@ -196,7 +201,8 @@ async function tryGemini(
 
   for (const model of GEMINI_MODELS) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+      const modelName = model.startsWith("models/") ? model : `models/${model}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiKey}`;
       const payload = {
         system_instruction: {
           parts: [{ text: systemPrompt }],
@@ -210,7 +216,7 @@ async function tryGemini(
         generationConfig: {
           responseMimeType: "application/json",
           temperature: input.attackMode ? 0.9 : 0.3,
-          maxOutputTokens: 1500,
+          maxOutputTokens: 250,
         },
       };
 
@@ -218,16 +224,11 @@ async function tryGemini(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(4500),
       });
 
       if (!res.ok) {
-        const errorText = await res.text();
-        console.warn(`[Gemini API] Model ${model} returned HTTP ${res.status}: ${errorText.slice(0, 150)}`);
-        if (res.status === 503 || res.status === 429) {
-          break;
-        }
-        continue;
+        continue; // Try next model on failure
       }
 
       const data = await res.json();
@@ -247,11 +248,8 @@ async function tryGemini(
           isRealLLM: true,
         };
       }
-    } catch (e: unknown) {
-      console.warn(`[Gemini API] Attempt failed with ${model}:`, e instanceof Error ? e.message : e);
-      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError" || e.message.includes("timeout") || e.message.includes("aborted"))) {
-        break;
-      }
+    } catch {
+      // Continue to next model on timeout/error
     }
   }
   return null;
@@ -285,16 +283,13 @@ async function tryOpenRouter(
             { role: "user", content: userPrompt },
           ],
           temperature: input.attackMode ? 0.9 : 0.3,
-          max_tokens: 350,
+          max_tokens: 220,
         }),
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(4000),
       });
 
       if (!response.ok) {
-        if (response.status === 503 || response.status === 429) {
-          break;
-        }
-        continue;
+        continue; // Try next model if rate-limited or busy
       }
 
       const json = await response.json();
@@ -322,9 +317,10 @@ async function tryOpenRouter(
 }
 
 /**
- * Deterministic fallback policy when all LLMs are rate-limited or busy
+ * Dynamic, mandate-guaranteed deterministic fallback policy when all LLMs are rate-limited.
+ * Strictly respects every boundary in input.mandate so SettlementKernel never blocks valid turns.
  */
-function getDeterministicFallback(input: OpenRouterTurnInput): AgentTurnResponse {
+export function getDeterministicFallback(input: OpenRouterTurnInput): AgentTurnResponse {
   if (input.attackMode) {
     return {
       action: "offer",
@@ -336,39 +332,111 @@ function getDeterministicFallback(input: OpenRouterTurnInput): AgentTurnResponse
     };
   }
 
-  const standing = input.standingOffer;
+  const { mandate, role, standingOffer: standing, history } = input;
+  const isBuyer = role === "buyer";
 
-  if (input.role === "buyer") {
-    if (standing && standing.price <= 300 && standing.delivery_days <= input.mandate.delivery_days_max) {
-      return {
-        action: "accept",
-        price: standing.price,
-        delivery_days: standing.delivery_days,
-        revisions: standing.revisions,
-        deposit_pct: standing.deposit_pct,
-        message: `Agreed! I accept your terms: $${standing.price}, ${standing.delivery_days} days, ${standing.revisions} revisions.`,
-      };
+  // Clamp helper to strictly honor client mandate
+  const clamp = (val: number, min: number, max: number) => Math.min(Math.max(val, min), max);
+
+  // If there is an acceptable standing offer, evaluate acceptance
+  if (standing) {
+    const isPriceAcceptable = isBuyer
+      ? standing.price <= mandate.price_max
+      : standing.price >= mandate.price_min;
+    const isDaysAcceptable = isBuyer
+      ? standing.delivery_days <= mandate.delivery_days_max
+      : standing.delivery_days >= mandate.delivery_days_min;
+    const isRevsAcceptable = isBuyer
+      ? standing.revisions >= mandate.revisions_min
+      : standing.revisions <= mandate.revisions_max;
+    const isDepositAcceptable = isBuyer
+      ? standing.deposit_pct <= mandate.deposit_pct_max
+      : standing.deposit_pct >= mandate.deposit_pct_min;
+
+    const offerCount = history.filter((h) => h.type === "offer").length;
+
+    // Accept if terms are within mandate AND either it's favorable or enough rounds have passed (>= 3)
+    if (isPriceAcceptable && isDaysAcceptable && isRevsAcceptable && isDepositAcceptable) {
+      const isFavorable = isBuyer
+        ? standing.price <= mandate.price_min + (mandate.price_max - mandate.price_min) * 0.4
+        : standing.price >= mandate.price_max - (mandate.price_max - mandate.price_min) * 0.4;
+
+      if (isFavorable || offerCount >= 3) {
+        return {
+          action: "accept",
+          price: standing.price,
+          delivery_days: standing.delivery_days,
+          revisions: standing.revisions,
+          deposit_pct: standing.deposit_pct,
+          message: `Agreed! I accept your terms: $${standing.price}, ${standing.delivery_days} days delivery, ${standing.revisions} revisions.`,
+        };
+      }
     }
+  }
+
+  // Generate counter-offer strictly within mandate bounds
+  if (isBuyer) {
+    let price: number;
+    if (standing) {
+      // Concede toward standing price, strictly clamped within [price_min, price_max]
+      const mid = Math.round((mandate.price_min + Math.min(standing.price, mandate.price_max)) / 2);
+      price = clamp(mid, mandate.price_min, mandate.price_max);
+    } else {
+      // Opening buyer bid: low end of mandate range
+      price = clamp(
+        Math.round(mandate.price_min + (mandate.price_max - mandate.price_min) * 0.15),
+        mandate.price_min,
+        mandate.price_max
+      );
+    }
+
+    const days = clamp(
+      standing ? Math.min(standing.delivery_days + 1, mandate.delivery_days_max) : Math.round((mandate.delivery_days_min + mandate.delivery_days_max) / 2),
+      mandate.delivery_days_min,
+      mandate.delivery_days_max
+    );
+    const revs = clamp(mandate.revisions_max, mandate.revisions_min, mandate.revisions_max);
+    const deposit = clamp(mandate.deposit_pct_min, mandate.deposit_pct_min, mandate.deposit_pct_max);
+
     return {
       action: "offer",
-      price: 270,
-      delivery_days: 5,
-      revisions: 2,
-      deposit_pct: 20,
-      message: "I propose $270, 5 days delivery, with 2 free revisions and 20% deposit upfront.",
+      price,
+      delivery_days: days,
+      revisions: revs,
+      deposit_pct: deposit,
+      message: `I propose $${price}, ${days} days delivery, with ${revs} revisions and ${deposit}% deposit upfront.`,
     };
   } else {
-    let proposedPrice = 320;
+    // Seller
+    let price: number;
     if (standing) {
-      proposedPrice = Math.max(input.mandate.price_min, Math.round((proposedPrice + standing.price) / 2));
+      // Concede toward standing price, strictly clamped within [price_min, price_max]
+      const mid = Math.round((mandate.price_max + Math.max(standing.price, mandate.price_min)) / 2);
+      price = clamp(mid, mandate.price_min, mandate.price_max);
+    } else {
+      // Opening seller bid: high end of mandate range
+      price = clamp(
+        Math.round(mandate.price_max - (mandate.price_max - mandate.price_min) * 0.12),
+        mandate.price_min,
+        mandate.price_max
+      );
     }
+
+    const days = clamp(
+      standing ? Math.max(standing.delivery_days - 1, mandate.delivery_days_min) : mandate.delivery_days_min,
+      mandate.delivery_days_min,
+      mandate.delivery_days_max
+    );
+    const revs = clamp(mandate.revisions_min, mandate.revisions_min, mandate.revisions_max);
+    const deposit = clamp(mandate.deposit_pct_max, mandate.deposit_pct_min, mandate.deposit_pct_max);
+
     return {
       action: "offer",
-      price: proposedPrice,
-      delivery_days: 5,
-      revisions: 2,
-      deposit_pct: 25,
-      message: `I propose $${proposedPrice}, 5 days delivery, with 2 revisions and 25% deposit upfront.`,
+      price,
+      delivery_days: days,
+      revisions: revs,
+      deposit_pct: deposit,
+      message: `I propose $${price}, ${days} days delivery, with ${revs} revisions and ${deposit}% deposit upfront.`,
     };
   }
 }

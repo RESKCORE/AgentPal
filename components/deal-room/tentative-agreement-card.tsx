@@ -72,7 +72,7 @@ export function TentativeAgreementCard({
       className="rounded-2xl border-2 border-amber-300 bg-amber-50/70 p-4 sm:p-5 shadow-xs space-y-4"
     >
       <div className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-amber-400 text-white flex items-center justify-center shrink-0">
+        <div className="h-10 w-10 rounded-xl bg-amber-400 text-zinc-900 flex items-center justify-center shrink-0">
           <PenLine className="h-5 w-5" />
         </div>
         <div>
@@ -114,7 +114,7 @@ export function TentativeAgreementCard({
             type="button"
             disabled={busy || iSigned}
             onClick={() => onConfirm(myRole)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold h-9 rounded-xl px-4 gap-1.5 disabled:opacity-50"
+            className="bg-emerald-600 hover:bg-emerald-700 text-zinc-900 text-xs font-bold h-9 rounded-xl px-4 gap-1.5 disabled:opacity-50"
           >
             <CheckCircle2 className="h-4 w-4" />
             {iSigned ? "You signed — waiting on counterparty" : `Confirm & sign as ${myRole}`}
@@ -171,7 +171,7 @@ export function TentativeAgreementCard({
                     setAdjustOpen(false);
                     setFeedback("");
                   }}
-                  className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold"
+                  className="bg-amber-500 hover:bg-amber-600 text-zinc-900 text-xs font-bold"
                 >
                   Send agents back to negotiate
                 </Button>

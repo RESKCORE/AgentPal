@@ -186,7 +186,7 @@ export function TaskCheckbox({
           {/* Check draws in just after the fill lands; stroke inverts the fill */}
           <svg
             viewBox="0 0 24 24"
-            className="relative h-full w-full p-[15%] text-white dark:text-neutral-900"
+            className="relative h-full w-full p-[15%] text-zinc-900 dark:text-neutral-900"
             fill="none"
             stroke="currentColor"
             strokeWidth="3"

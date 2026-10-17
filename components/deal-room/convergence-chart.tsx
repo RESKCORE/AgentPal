@@ -58,20 +58,25 @@ export function ConvergenceChart({
   const buyerPoints = validOffers.filter((o) => o.isBuyer);
   const sellerPoints = validOffers.filter((o) => !o.isBuyer);
 
-  const maxRounds = Math.max(validOffers.length, 3);
+  const getX = useCallback(
+    (index: number) => {
+      if (validOffers.length <= 1) return padding.left + innerWidth / 2;
+      return padding.left + (index / (validOffers.length - 1)) * innerWidth;
+    },
+    [validOffers.length, innerWidth, padding.left]
+  );
 
-  const getX = useCallback((index: number) => {
-    if (maxRounds <= 1) return padding.left + innerWidth / 2;
-    return padding.left + (index / (maxRounds - 1)) * innerWidth;
-  }, [maxRounds, innerWidth, padding.left]);
+  const getY = useCallback(
+    (price: number) => {
+      const normalized = (price - minPrice) / priceRange;
+      return height - padding.bottom - normalized * innerHeight;
+    },
+    [minPrice, priceRange, height, padding.bottom, innerHeight]
+  );
 
-  const getY = useCallback((price: number) => {
-    return padding.top + innerHeight - ((price - minPrice) / priceRange) * innerHeight;
-  }, [minPrice, priceRange, innerHeight, padding.top]);
-
-  // Generate SVG path for seller line
+  // SVG lines for convergence path
   const sellerPath = useMemo(() => {
-    if (sellerPoints.length === 0) return "";
+    if (!sellerPoints.length) return "";
     return sellerPoints
       .map((p) => {
         const globalIdx = validOffers.findIndex((o) => o.seq === p.seq);
@@ -82,9 +87,8 @@ export function ConvergenceChart({
       .join(" L ");
   }, [sellerPoints, validOffers, getX, getY]);
 
-  // Generate SVG path for buyer line
   const buyerPath = useMemo(() => {
-    if (buyerPoints.length === 0) return "";
+    if (!buyerPoints.length) return "";
     return buyerPoints
       .map((p) => {
         const globalIdx = validOffers.findIndex((o) => o.seq === p.seq);
@@ -99,22 +103,22 @@ export function ConvergenceChart({
   const latestBuyerPrice = buyerPoints.length ? buyerPoints[buyerPoints.length - 1].price : null;
 
   return (
-    <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs flex flex-col justify-between h-full relative">
-      <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
+    <div className="glass-panel-dark-elevated rounded-3xl p-6 flex flex-col justify-between h-full relative border border-zinc-200">
+      <div className="flex items-center justify-between pb-3 border-b border-zinc-200 mb-2">
         <div className="flex items-center gap-2">
-          <span className="font-extrabold text-slate-900 text-sm tracking-tight">
-            Convergence (price per round)
+          <span className="font-outfit font-black text-zinc-900 text-sm tracking-tight">
+            Convergence (Price per Round)
           </span>
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 text-xs">
-          <div className="flex items-center gap-1.5 font-medium text-emerald-700">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-600 inline-block" />
+        <div className="flex items-center gap-3 text-xs font-mono">
+          <div className="flex items-center gap-1.5 font-bold text-emerald-600">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 inline-block shadow-[0_0_8px_#34d399]" />
             <span>Seller ({sellerName})</span>
           </div>
-          <div className="flex items-center gap-1.5 font-medium text-slate-700">
-            <span className="h-2.5 w-2.5 rounded-full bg-slate-800 inline-block" />
+          <div className="flex items-center gap-1.5 font-bold text-blue-600">
+            <span className="h-2.5 w-2.5 rounded-full bg-blue-400 inline-block shadow-[0_0_8px_#38bdf8]" />
             <span>Buyer ({buyerName})</span>
           </div>
         </div>
@@ -132,7 +136,7 @@ export function ConvergenceChart({
             y1={padding.top}
             x2={width - padding.right}
             y2={padding.top}
-            stroke="#f1f5f9"
+            stroke="rgba(255,255,255,0.06)"
             strokeDasharray="4 4"
           />
           <line
@@ -140,7 +144,7 @@ export function ConvergenceChart({
             y1={padding.top + innerHeight / 2}
             x2={width - padding.right}
             y2={padding.top + innerHeight / 2}
-            stroke="#f1f5f9"
+            stroke="rgba(255,255,255,0.06)"
             strokeDasharray="4 4"
           />
           <line
@@ -148,7 +152,7 @@ export function ConvergenceChart({
             y1={height - padding.bottom}
             x2={width - padding.right}
             y2={height - padding.bottom}
-            stroke="#e2e8f0"
+            stroke="rgba(255,255,255,0.15)"
             strokeWidth="1.5"
           />
 
@@ -158,7 +162,7 @@ export function ConvergenceChart({
             y1={padding.top}
             x2={padding.left}
             y2={height - padding.bottom}
-            stroke="#e2e8f0"
+            stroke="rgba(255,255,255,0.15)"
             strokeWidth="1.5"
           />
 
@@ -167,7 +171,7 @@ export function ConvergenceChart({
             x={padding.left - 8}
             y={padding.top + 4}
             textAnchor="end"
-            className="text-[11px] fill-slate-400 font-mono font-medium"
+            className="text-[11px] fill-zinc-400 font-mono font-medium"
           >
             ${maxPrice}
           </text>
@@ -175,7 +179,7 @@ export function ConvergenceChart({
             x={padding.left - 8}
             y={padding.top + innerHeight / 2 + 4}
             textAnchor="end"
-            className="text-[11px] fill-slate-400 font-mono font-medium"
+            className="text-[11px] fill-zinc-400 font-mono font-medium"
           >
             ${Math.round((maxPrice + minPrice) / 2)}
           </text>
@@ -183,7 +187,7 @@ export function ConvergenceChart({
             x={padding.left - 8}
             y={height - padding.bottom + 4}
             textAnchor="end"
-            className="text-[11px] fill-slate-400 font-mono font-medium"
+            className="text-[11px] fill-zinc-400 font-mono font-medium"
           >
             ${minPrice}
           </text>
@@ -194,7 +198,7 @@ export function ConvergenceChart({
               x={padding.left + innerWidth / 2}
               y={padding.top + innerHeight / 2 + 4}
               textAnchor="middle"
-              className="text-xs fill-slate-400 italic font-medium"
+              className="text-xs fill-zinc-500 italic font-medium"
             >
               Waiting for initial offer to begin plotting convergence...
             </text>
@@ -205,19 +209,19 @@ export function ConvergenceChart({
             <path
               d={`M ${sellerPath}`}
               fill="none"
-              stroke="#059669"
+              stroke="#34d399"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
           )}
 
-          {/* Buyer Line (Slate Dashed) */}
+          {/* Buyer Line (Sky Blue Dashed) */}
           {buyerPath && (
             <path
               d={`M ${buyerPath}`}
               fill="none"
-              stroke="#1e293b"
+              stroke="#38bdf8"
               strokeWidth="2.5"
               strokeDasharray="5 4"
               strokeLinecap="round"
@@ -232,12 +236,12 @@ export function ConvergenceChart({
             const y = getY(p.price);
             return (
               <g key={`seller-pt-${p.seq}`}>
-                <circle cx={x} cy={y} r="5" fill="#059669" stroke="#ffffff" strokeWidth="2" />
+                <circle cx={x} cy={y} r="5" fill="#34d399" stroke="#09090b" strokeWidth="2" />
                 <text
                   x={x}
                   y={y - 10}
                   textAnchor="middle"
-                  className="text-[11px] font-extrabold fill-emerald-800 font-mono"
+                  className="text-[11px] font-extrabold fill-emerald-400 font-mono"
                 >
                   ${p.price}
                 </text>
@@ -252,12 +256,12 @@ export function ConvergenceChart({
             const y = getY(p.price);
             return (
               <g key={`buyer-pt-${p.seq}`}>
-                <circle cx={x} cy={y} r="5" fill="#1e293b" stroke="#ffffff" strokeWidth="2" />
+                <circle cx={x} cy={y} r="5" fill="#38bdf8" stroke="#09090b" strokeWidth="2" />
                 <text
                   x={x}
                   y={y + 18}
                   textAnchor="middle"
-                  className="text-[11px] font-extrabold fill-slate-800 font-mono"
+                  className="text-[11px] font-extrabold fill-blue-300 font-mono"
                 >
                   ${p.price}
                 </text>
@@ -268,27 +272,27 @@ export function ConvergenceChart({
       </div>
 
       {/* Convergence Summary Footer */}
-      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+      <div className="pt-2.5 border-t border-zinc-200 flex items-center justify-between text-xs text-zinc-600">
         <div className="flex items-center gap-1.5 font-medium">
           {latestSellerPrice !== null && latestBuyerPrice !== null ? (
             <>
-              <span>Seller: <strong className="text-emerald-700 font-bold tabular-nums">${latestSellerPrice}</strong></span>
+              <span>Seller: <strong className="text-emerald-600 font-bold tabular-nums">${latestSellerPrice}</strong></span>
               <span>·</span>
-              <span>Buyer: <strong className="text-slate-900 font-bold tabular-nums">${latestBuyerPrice}</strong></span>
+              <span>Buyer: <strong className="text-blue-600 font-bold tabular-nums">${latestBuyerPrice}</strong></span>
               <span>·</span>
-              <span>Spread: <strong className="tabular-nums font-semibold">${Math.abs(latestSellerPrice - latestBuyerPrice)}</strong></span>
+              <span>Spread: <strong className="tabular-nums font-semibold text-zinc-900">${Math.abs(latestSellerPrice - latestBuyerPrice)}</strong></span>
             </>
           ) : latestSellerPrice !== null ? (
             <>
-              <span>Seller opening offer: <strong className="text-emerald-700 font-bold tabular-nums">${latestSellerPrice}</strong></span>
+              <span>Seller opening offer: <strong className="text-emerald-600 font-bold tabular-nums">${latestSellerPrice}</strong></span>
               <span>·</span>
               <span className="italic">Waiting for buyer counter-offer</span>
             </>
           ) : (
-            <span className="italic">Round 1 initial state · Ready to negotiate</span>
+            <span className="italic text-zinc-500">Round 1 initial state · Ready to negotiate</span>
           )}
         </div>
-        <div className="hidden sm:inline-block bg-amber-50 text-amber-900 px-2 py-0.5 rounded text-[10px] font-medium border border-amber-200">
+        <div className="hidden sm:inline-block bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-200">
           Offer cards show change chips (movement)
         </div>
       </div>

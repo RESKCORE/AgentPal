@@ -197,8 +197,9 @@ async function main() {
     const resolvedInvoiceId = invoiceId || String((createdInvoice as { href?: string }).href || '').split('/').pop();
     console.log(`✅ Invoice created: ${resolvedInvoiceId}`);
     console.log(`   Invoice number: ${invoiceNumber}`);
-    console.log(`   Amount: $480.00`);
-    console.log(`   View in sandbox: https://www.sandbox.paypal.com/invoice/p/#${resolvedInvoiceId}\n`);
+    const cleanHash = (resolvedInvoiceId || '').replace(/^INV2-?/i, '').replace(/-/g, '');
+    console.log(`   Payer view: https://www.sandbox.paypal.com/invoice/p/#${cleanHash}`);
+    console.log(`   Merchant view: https://www.sandbox.paypal.com/invoice/details/${resolvedInvoiceId}\n`);
 
     // Step 3: Send the invoice
     console.log('3️⃣  Sending invoice to buyer...');

@@ -91,7 +91,7 @@ export function NegotiationPanel({
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
-                  <Send className="h-4 w-4 text-white" />
+                  <Send className="h-4 w-4 text-zinc-900" />
                 </div>
                 Negotiation Room
               </CardTitle>

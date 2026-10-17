@@ -1,6 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 const mandateValidator = v.object({
   role: v.union(v.literal("buyer"), v.literal("seller")),
@@ -45,41 +44,53 @@ const confirmationsValidator = v.object({
   sellerConfirmedAt: v.optional(v.string()),
 });
 
-export default defineSchema({
-  ...authTables,
-  deals: defineTable({
-    title: v.string(),
-    description: v.string(),
-    creatorRole: v.union(v.literal("buyer"), v.literal("seller")),
-    inviteToken: v.string(),
-    buyerUserId: v.optional(v.string()),
-    sellerUserId: v.optional(v.string()),
-    status: v.union(
-      v.literal("setup"),
-      v.literal("open"),
-      v.literal("tentative_agreement"),
-      v.literal("agreed"),
-      v.literal("deposit_invoiced"),
-      v.literal("paid"),
-      v.literal("no_deal")
-    ),
-    currentRound: v.number(),
-    maxRounds: v.number(),
-    deadline: v.string(),
-    createdAt: v.string(),
-    buyer: participantValidator,
-    seller: participantValidator,
-    buyerMandate: v.union(mandateValidator, v.null()),
-    sellerMandate: v.union(mandateValidator, v.null()),
-    events: v.array(eventValidator),
-    standingOffer: v.union(offerValidator, v.null()),
-    tentativeTerms: v.union(offerValidator, v.null()),
-    confirmations: confirmationsValidator,
-    contract: v.union(v.any(), v.null()),
-    paypalInvoice: v.union(v.any(), v.null()),
-    attackMode: v.boolean(),
-  })
-    .index("by_inviteToken", ["inviteToken"])
-    .index("by_buyer", ["buyerUserId"])
-    .index("by_seller", ["sellerUserId"]),
-});
+export default defineSchema(
+  {
+    users: defineTable({
+      clerkId: v.optional(v.string()),
+      name: v.optional(v.string()),
+      email: v.optional(v.string()),
+      image: v.optional(v.string()),
+      isAnonymous: v.optional(v.boolean()),
+      emailVerificationTime: v.optional(v.number()),
+      phone: v.optional(v.string()),
+      phoneVerificationTime: v.optional(v.number()),
+    }).index("by_clerkId", ["clerkId"]),
+    deals: defineTable({
+      title: v.string(),
+      description: v.string(),
+      creatorRole: v.union(v.literal("buyer"), v.literal("seller")),
+      inviteToken: v.string(),
+      buyerUserId: v.optional(v.string()),
+      sellerUserId: v.optional(v.string()),
+      status: v.union(
+        v.literal("setup"),
+        v.literal("open"),
+        v.literal("tentative_agreement"),
+        v.literal("agreed"),
+        v.literal("deposit_invoiced"),
+        v.literal("paid"),
+        v.literal("no_deal")
+      ),
+      currentRound: v.number(),
+      maxRounds: v.number(),
+      deadline: v.string(),
+      createdAt: v.string(),
+      buyer: participantValidator,
+      seller: participantValidator,
+      buyerMandate: v.union(mandateValidator, v.null()),
+      sellerMandate: v.union(mandateValidator, v.null()),
+      events: v.array(eventValidator),
+      standingOffer: v.union(offerValidator, v.null()),
+      tentativeTerms: v.union(offerValidator, v.null()),
+      confirmations: confirmationsValidator,
+      contract: v.union(v.any(), v.null()),
+      paypalInvoice: v.union(v.any(), v.null()),
+      attackMode: v.boolean(),
+    })
+      .index("by_inviteToken", ["inviteToken"])
+      .index("by_buyer", ["buyerUserId"])
+      .index("by_seller", ["sellerUserId"]),
+  },
+  { schemaValidation: false }
+);

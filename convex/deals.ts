@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query, action, QueryCtx, MutationCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { SettlementKernel } from "../lib/settlement-kernel";
 
 const mandateValidator = v.object({
@@ -30,14 +29,20 @@ interface AuthUser {
 type DealCtx = QueryCtx | MutationCtx;
 type DealDoc = Doc<"deals">;
 
+// Clerk identity: `subject` is the Clerk user id. Name/email live in our own
+// `users` table (synced from the client) with the JWT claims as fallback.
 async function getAuthUser(ctx: DealCtx): Promise<AuthUser | null> {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) return null;
-  const user = await ctx.db.get(userId);
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  const clerkId = identity.subject;
+  const record = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+    .unique();
   return {
-    userId: String(userId),
-    name: (user?.name as string) ?? "Unknown",
-    email: (user?.email as string) ?? "",
+    userId: clerkId,
+    name: record?.name ?? identity.name ?? "Unknown",
+    email: record?.email ?? identity.email ?? "",
   };
 }
 
@@ -47,9 +52,37 @@ async function requireAuthUser(ctx: DealCtx): Promise<AuthUser> {
   return user;
 }
 
-function roleOf(deal: DealDoc, userId: string): "buyer" | "seller" | null {
+// Upsert the caller's profile from Clerk after sign-in. Idempotent.
+export const syncUser = mutation({
+  args: { name: v.string(), email: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const clerkId = identity.subject;
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+    if (existing) {
+      if (existing.name !== args.name || existing.email !== args.email) {
+        await ctx.db.patch(existing._id, { name: args.name, email: args.email });
+      }
+    } else {
+      await ctx.db.insert("users", { clerkId, name: args.name, email: args.email });
+    }
+  },
+});
+
+function roleOf(deal: DealDoc, userId: string, email?: string): "buyer" | "seller" | null {
   if (deal.buyerUserId === userId) return "buyer";
   if (deal.sellerUserId === userId) return "seller";
+  if (deal.buyer?.id === userId) return "buyer";
+  if (deal.seller?.id === userId) return "seller";
+  if (email && email.trim().length > 0) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (deal.buyer?.email && deal.buyer.email.trim().toLowerCase() === cleanEmail) return "buyer";
+    if (deal.seller?.email && deal.seller.email.trim().toLowerCase() === cleanEmail) return "seller";
+  }
   return null;
 }
 
@@ -71,6 +104,7 @@ async function resolveDeal(ctx: DealCtx, dealId: string) {
   }
   const all = await ctx.db.query("deals").collect();
   const match = all.find((d: DealDoc) => {
+    if (String(d._id) === dealId || String(d._id).startsWith(dealId)) return true;
     const contract = d.contract as { deal_id?: string } | null;
     if (contract?.deal_id === dealId) return true;
     return d.title.toLowerCase().replace(/\s+/g, "-") === dealId.toLowerCase();
@@ -83,8 +117,24 @@ async function requireParticipant(ctx: DealCtx, dealId: string) {
   const user = await requireAuthUser(ctx);
   const resolved = await resolveDeal(ctx, dealId);
   if (!resolved) throw new Error("Deal not found");
-  const role = roleOf(resolved.deal, user.userId);
+  const role = roleOf(resolved.deal, user.userId, user.email);
   if (!role) throw new Error("Not a participant of this deal");
+
+  // Keep participant userId in sync with authenticated identity
+  if ("patch" in ctx.db) {
+    if (role === "buyer" && resolved.deal.buyerUserId !== user.userId) {
+      await ctx.db.patch(resolved.id, {
+        buyerUserId: user.userId,
+        buyer: { ...resolved.deal.buyer, id: user.userId },
+      });
+    } else if (role === "seller" && resolved.deal.sellerUserId !== user.userId) {
+      await ctx.db.patch(resolved.id, {
+        sellerUserId: user.userId,
+        seller: { ...resolved.deal.seller, id: user.userId },
+      });
+    }
+  }
+
   return { user, role, deal: resolved.deal, id: resolved.id };
 }
 
@@ -100,19 +150,10 @@ export const list = query({
   handler: async (ctx) => {
     const user = await getAuthUser(ctx);
     if (!user) return [];
-    const [asBuyer, asSeller] = await Promise.all([
-      ctx.db.query("deals").withIndex("by_buyer", (q) => q.eq("buyerUserId", user.userId)).collect(),
-      ctx.db.query("deals").withIndex("by_seller", (q) => q.eq("sellerUserId", user.userId)).collect(),
-    ]);
-    const seen = new Set<string>();
-    const mine = [...asBuyer, ...asSeller].filter((d) => {
-      const id = String(d._id);
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
+    const all = await ctx.db.query("deals").collect();
+    const mine = all.filter((d) => roleOf(d, user.userId, user.email) !== null);
     mine.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return mine.map((d) => stripForViewer(d, roleOf(d, user.userId)));
+    return mine.map((d) => stripForViewer(d, roleOf(d, user.userId, user.email)));
   },
 });
 
@@ -123,7 +164,7 @@ export const get = query({
     if (!user) return null;
     const resolved = await resolveDeal(ctx, args.dealId);
     if (!resolved) return null;
-    const role = roleOf(resolved.deal, user.userId);
+    const role = roleOf(resolved.deal, user.userId, user.email);
     if (!role) return null;
     return { ...stripForViewer(resolved.deal, role), viewerRole: role };
   },
@@ -136,11 +177,12 @@ export const getForReferee = query({
     if (!user) return null;
     const resolved = await resolveDeal(ctx, args.dealId);
     if (!resolved) return null;
-    const role = roleOf(resolved.deal, user.userId);
+    const role = roleOf(resolved.deal, user.userId, user.email);
     if (!role) return null;
     return { ...resolved.deal, viewerRole: role };
   },
 });
+
 
 // Public by design: the invite landing page shows non-sensitive fields only.
 export const getByInviteToken = query({
@@ -382,6 +424,74 @@ export const appendEvent = mutation({
       throw new Error("Contract events are written by the confirmation gate only");
     } else if (args.type === "payment") {
       throw new Error("Payment events are written by the settlement path only");
+    }
+
+    return await ctx.runMutation(internal.deals.appendEventInternal, args);
+  },
+});
+
+export const recordRefereeTurn = mutation({
+  args: {
+    dealId: v.string(),
+    actor: v.string(),
+    type: v.string(),
+    payload: v.any(),
+  },
+  handler: async (ctx, args): Promise<unknown> => {
+    const { deal } = await requireParticipant(ctx, args.dealId);
+
+    if (deal.status !== "open") {
+      throw new Error(`Cannot record turn when deal status is '${deal.status}'`);
+    }
+
+    const allowedActors = ["buyer_agent", "seller_agent", "kernel", "system"];
+    if (!allowedActors.includes(args.actor)) {
+      throw new Error(`Actor '${args.actor}' is not allowed for referee turns`);
+    }
+
+    if (!ALLOWED_EVENT_TYPES.includes(args.type)) {
+      throw new Error(`Unauthorized event type: ${args.type}`);
+    }
+
+    const actingRole: "buyer" | "seller" = args.actor.includes("seller") ? "seller" : "buyer";
+    const actingMandate = actingRole === "buyer" ? deal.buyerMandate : deal.sellerMandate;
+
+    if (args.type === "offer") {
+      if (!actingMandate) {
+        throw new Error(`Mandate missing for acting role '${actingRole}'`);
+      }
+      const offerTerms = {
+        price: Number(args.payload?.price),
+        delivery_days: Number(args.payload?.delivery_days),
+        revisions: Number(args.payload?.revisions),
+        deposit_pct: Number(args.payload?.deposit_pct),
+        message: String(args.payload?.message || ""),
+      };
+      const checkResult = SettlementKernel.validateOffer(offerTerms, actingMandate);
+      if (!checkResult.valid) {
+        throw new Error(`Settlement Invariant Error: Offer violates mandate: ${checkResult.violations.join("; ")}`);
+      }
+      const leakResult = SettlementKernel.checkMessageLeak(offerTerms.message, offerTerms, actingMandate);
+      if (leakResult.leaked) {
+        throw new Error(`Mandate Leak Error: Message leaks private limits: ${leakResult.violations.join("; ")}`);
+      }
+    } else if (args.type === "accept") {
+      if (!deal.standingOffer) throw new Error("Cannot accept: no standing offer exists");
+      if (!actingMandate) throw new Error(`Mandate missing for accepting party`);
+      const acceptResult = SettlementKernel.validateAcceptance(
+        { accepted_offer_seq: deal.events.length },
+        deal.standingOffer,
+        actingMandate
+      );
+      if (!acceptResult.valid) {
+        throw new Error(`Settlement Invariant Error: Acceptance violates mandate limits: ${acceptResult.violations.join("; ")}`);
+      }
+      if (args.payload?.message) {
+        const leakResult = SettlementKernel.checkMessageLeak(String(args.payload.message), deal.standingOffer, actingMandate);
+        if (leakResult.leaked) {
+          throw new Error(`Mandate Leak Error: Acceptance message leaks private limits: ${leakResult.violations.join("; ")}`);
+        }
+      }
     }
 
     return await ctx.runMutation(internal.deals.appendEventInternal, args);

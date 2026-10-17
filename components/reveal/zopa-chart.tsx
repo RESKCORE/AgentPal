@@ -162,7 +162,7 @@ export function ZOPAChart({
             >
               {/* Needle Tag */}
               <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                <span className="inline-flex items-center gap-1 bg-emerald-600 text-white font-black text-xs px-2.5 py-1 rounded-full shadow-md">
+                <span className="inline-flex items-center gap-1 bg-emerald-600 text-zinc-900 font-black text-xs px-2.5 py-1 rounded-full shadow-md">
                   <Sparkles className="h-3 w-3" />
                   Agreed: {formatCurrency(agreedPrice)}
                 </span>
@@ -264,7 +264,7 @@ export function ZOPAChart({
       {/* Total Surplus Summary Banner */}
       <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50/70 via-white to-emerald-50/40 p-5 flex flex-wrap items-center justify-between gap-4 shadow-2xs">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+          <div className="h-9 w-9 rounded-xl bg-emerald-600 text-zinc-900 flex items-center justify-center shadow-xs">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>

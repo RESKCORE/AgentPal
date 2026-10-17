@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+import { ClerkProvider } from "@clerk/nextjs";
 import { ConvexClientProvider } from "@/components/convex-provider";
 import { SideNav } from "@/components/side-nav";
 
@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const viewport: Viewport = {
-  themeColor: "#059669",
+  themeColor: "#ffffff",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
@@ -89,35 +89,36 @@ export const metadata: Metadata = {
     description:
       "Agents negotiate. Code decides what is allowed. PayPal moves the money. Protected by a deterministic Settlement Kernel.",
     images: ["/banner.png"],
-    creator: "@AgentPal",
   },
   category: "technology",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="min-h-full flex flex-col bg-[#F8FAFC] text-slate-800 font-sans antialiased">
-        <ConvexAuthNextjsServerProvider>
+    <ClerkProvider>
+      <html
+        lang="en"
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-white antialiased`}
+      >
+        <head>
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+          <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+            rel="stylesheet"
+          />
+        </head>
+        <body className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans antialiased selection:bg-blue-200 selection:text-blue-900">
           <ConvexClientProvider>
-            <div className="flex min-h-screen">
-              <SideNav />
-              <div className="min-w-0 flex-1">{children}</div>
+            <div className="flex min-h-screen bg-white">
+              <div className="shrink-0 bg-white border-r border-zinc-200">
+                <SideNav />
+              </div>
+              <div className="min-w-0 flex-1 bg-white">{children}</div>
             </div>
           </ConvexClientProvider>
-        </ConvexAuthNextjsServerProvider>
-      </body>
-    </html>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

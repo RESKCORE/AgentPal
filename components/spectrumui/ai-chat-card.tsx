@@ -205,7 +205,7 @@ export function AIChatCard({
               }
               transition={{ duration: 0.5, ease: "easeInOut", times: [0, 0.35, 1] }}
               aria-label="Send message"
-              className="group flex h-[30px] w-[30px] items-center justify-center rounded-[18px] bg-black text-white dark:bg-white dark:text-neutral-950"
+              className="group flex h-[30px] w-[30px] items-center justify-center rounded-[18px] bg-black text-zinc-900 dark:bg-white dark:text-neutral-950"
             >
               <ArrowUp className="h-4 w-4 transition-transform duration-200 group-hover:-translate-y-px" />
             </motion.button>

@@ -106,7 +106,7 @@ export function MandateForm({ role, onSubmit }: MandateFormProps) {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
-                  <Lock className="h-5 w-5 text-white" />
+                  <Lock className="h-5 w-5 text-zinc-900" />
                 </div>
                 Set Your Private Mandate
               </CardTitle>

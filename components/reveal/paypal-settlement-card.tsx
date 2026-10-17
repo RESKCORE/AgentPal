@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Check, CheckCircle2, ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatPayPalInvoiceUrls } from "@/lib/paypal/executor";
 
 interface PayPalInvoiceData {
   invoiceId?: string;
@@ -10,6 +11,7 @@ interface PayPalInvoiceData {
   status?: string;
   amount?: number;
   viewUrl?: string;
+  invoicerUrl?: string;
   paidAt?: string;
 }
 
@@ -51,9 +53,11 @@ export function PayPalSettlementCard({
     setTimeout(() => setIsRefreshing(false), 800);
   };
 
-  const invoiceUrl =
-    paypalInvoice?.viewUrl ||
-    (paypalInvoice?.invoiceId ? `https://www.sandbox.paypal.com/invoice/p/#${paypalInvoice.invoiceId}` : null);
+  const { viewUrl: invoiceUrl, invoicerUrl } = formatPayPalInvoiceUrls(
+    paypalInvoice?.invoiceId,
+    paypalInvoice?.viewUrl,
+    paypalInvoice?.invoicerUrl
+  );
 
   return (
     <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 shadow-xs space-y-6">
@@ -82,7 +86,7 @@ export function PayPalSettlementCard({
 
           {/* Step 1: Contract signed */}
           <div className="relative z-10 flex flex-col items-center">
-            <div className="h-8 w-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+            <div className="h-8 w-8 rounded-full bg-emerald-600 text-zinc-900 flex items-center justify-center font-bold text-xs shadow-xs">
               <Check className="h-4 w-4 stroke-[3]" />
             </div>
             <span className="text-[11px] sm:text-xs font-bold text-slate-800 mt-2 text-center">
@@ -95,7 +99,7 @@ export function PayPalSettlementCard({
             <div
               className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors shadow-xs ${
                 isInvoiced
-                  ? "bg-emerald-600 text-white"
+                  ? "bg-emerald-600 text-zinc-900"
                   : "bg-white border-2 border-slate-300 text-slate-500"
               }`}
             >
@@ -115,7 +119,7 @@ export function PayPalSettlementCard({
             <div
               className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs transition-colors shadow-xs ${
                 isPaid
-                  ? "bg-emerald-600 text-white"
+                  ? "bg-emerald-600 text-zinc-900"
                   : "bg-white border-2 border-slate-300 text-slate-500"
               }`}
             >
@@ -150,14 +154,14 @@ export function PayPalSettlementCard({
             <Button
               onClick={onCreateInvoice}
               disabled={isCreatingInvoice}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold h-9 px-4 shadow-xs"
+              className="bg-emerald-600 hover:bg-emerald-700 text-zinc-900 text-xs font-bold h-9 px-4 shadow-xs"
             >
               {isCreatingInvoice ? "Creating PayPal Sandbox Invoice..." : "Create PayPal Sandbox deposit invoice"}
             </Button>
           ) : !isPaid ? (
             <Button
               onClick={onPayInvoice}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold h-9 px-4 shadow-xs"
+              className="bg-emerald-600 hover:bg-emerald-700 text-zinc-900 text-xs font-bold h-9 px-4 shadow-xs"
             >
               Simulate Buyer Paying Deposit (Sandbox)
             </Button>
@@ -185,8 +189,22 @@ export function PayPalSettlementCard({
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs h-9 px-3 border border-slate-300 rounded-md hover:bg-slate-50 text-slate-700 font-semibold"
+              title="Open buyer/payer view in PayPal Developer Sandbox"
             >
               <span>Open invoice</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+
+          {invoicerUrl && invoicerUrl !== invoiceUrl && (
+            <a
+              href={invoicerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs h-9 px-3 border border-slate-300 rounded-md hover:bg-slate-50 text-slate-700 font-semibold"
+              title="Open seller/merchant dashboard in PayPal Developer Sandbox"
+            >
+              <span>Merchant details</span>
               <ExternalLink className="h-3 w-3" />
             </a>
           )}

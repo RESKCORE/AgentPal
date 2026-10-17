@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { getConvexHttp } from "@/lib/convex";
+import { getAuthedConvex } from "@/lib/convex";
 import { SettlementKernel } from "@/lib/settlement-kernel";
 import { toDealData } from "@/lib/deal-store";
 
@@ -10,17 +9,9 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-async function authedConvex() {
-  const token = await convexAuthNextjsToken();
-  if (!token) return null;
-  const convex = getConvexHttp();
-  convex.setAuth(token);
-  return convex;
-}
-
 export async function GET(request: Request, { params }: RouteParams) {
   const { id } = await params;
-  const convex = await authedConvex();
+  const convex = await getAuthedConvex();
   if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const doc = await convex.query(api.deals.get, { dealId: id as Id<"deals"> });
   if (!doc) {
@@ -32,7 +23,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 export async function POST(request: Request, { params }: RouteParams) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const convex = await authedConvex();
+  const convex = await getAuthedConvex();
   if (!convex) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   if (body.action === "reset") {
